@@ -31,18 +31,6 @@ exclude = [
     "dist",
     "site-packages",
     "venv",
-    # Legacy code kept only for reference until deleted/migrated by the
-    # refactor plan (docs/design.md section 4.3 and 4.1/4.2). Do not lint or
-    # format it; remove these entries once the corresponding files are gone.
-    "othercode",
-    "genetic_optimizer",
-    "ensemble",
-    "bls.py",
-    "tbls.py",
-    "common.py",
-    "main.py",
-    "dataprocess.py",
-    "dataset",
 ]
 
 force-exclude = true

@@ -34,7 +34,7 @@ class TreeSelector:
         self,
         fitness_scores: dict[int, float],
         diversity_scores: dict[int, float] | None = None,
-    ) -> "TreeSelector":
+    ) -> TreeSelector:
         """Select tree subsets and assign weights from fitness/diversity scores.
 
         Args:

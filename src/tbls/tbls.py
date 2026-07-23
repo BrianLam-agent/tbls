@@ -55,7 +55,7 @@ class RegressionTreeModule:
 
     def fit(
         self, X: NDArray[np.float64], y: NDArray[np.int64], rng: np.random.RandomState
-    ) -> "RegressionTreeModule":
+    ) -> RegressionTreeModule:
         """Fit the tree on a Poisson-bootstrap, random-subspace view of ``X``."""
         n_samples, n_features = X.shape
         # Poisson(1) bootstrap
@@ -63,9 +63,7 @@ class RegressionTreeModule:
         indices = np.repeat(np.arange(n_samples), counts)
         # Guarantee enough samples (at least min_samples_split)
         if len(indices) < self.min_samples_split:
-            extra = rng.choice(
-                n_samples, size=self.min_samples_split - len(indices), replace=True
-            )
+            extra = rng.choice(n_samples, size=self.min_samples_split - len(indices), replace=True)
             indices = np.concatenate([indices, extra])
         x_boot = X[indices]
         y_boot = y[indices]
@@ -203,7 +201,7 @@ class TBLS(BaseEstimator, ClassifierMixin):  # type: ignore[misc]
         L: NDArray[np.float64] | None,
     ) -> NDArray[np.float64]:
         """Solve weighted ridge regression ``W = (A^T S A + λI + γ A^T L A)^{-1} A^T S Y``."""
-        n, d = A.shape
+        _, d = A.shape
         if S is not None:
             sw = S @ A
             atsa = A.T @ sw
@@ -231,9 +229,6 @@ class TBLS(BaseEstimator, ClassifierMixin):  # type: ignore[misc]
         self,
         A_old: NDArray[np.float64],
         y_enc: NDArray[np.int64],
-        Y_onehot: NDArray[np.float64],
-        S: NDArray[np.float64] | None,
-        L: NDArray[np.float64] | None,
         rng: np.random.RandomState,
     ) -> tuple[NDArray[np.float64], list[RegressionTreeModule]]:
         """Add one group of enhancement trees. Returns the new ``A`` and trees."""
@@ -253,7 +248,7 @@ class TBLS(BaseEstimator, ClassifierMixin):  # type: ignore[misc]
         a_new = np.hstack([A_old, h_new])
         return a_new, new_trees
 
-    def fit(self, X: NDArray[np.float64], y: NDArray[np.int64]) -> "TBLS":
+    def fit(self, X: NDArray[np.float64], y: NDArray[np.int64]) -> TBLS:
         """Fit the TBLS estimator.
 
         Args:
@@ -325,9 +320,7 @@ class TBLS(BaseEstimator, ClassifierMixin):  # type: ignore[misc]
         # 5. Incremental layers (SPI)
         self.inc_trees_layers_: list[list[RegressionTreeModule]] = []
         for _ in range(self.n_increment_layers):
-            a_new, new_trees = self._increment_layer(
-                self.A_, y_enc, y_onehot, s_mat, l_mat, rng
-            )
+            a_new, new_trees = self._increment_layer(self.A_, y_enc, rng)
             # Recompute weights after adding the layer.
             self.W_ = self._solve_weights(a_new, y_onehot, s_mat, l_mat)
             self.inc_trees_layers_.append(new_trees)

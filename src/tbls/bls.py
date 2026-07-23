@@ -89,9 +89,7 @@ class BroadLearningSystem(BaseEstimator, ClassifierMixin):  # type: ignore[misc]
         self.n_classes_ = len(self.classes_)
         return np.eye(self.n_classes_, dtype=np.float64)[y]
 
-    def _compute_sample_weights(
-        self, y: NDArray[np.int64]
-    ) -> NDArray[np.float64] | None:
+    def _compute_sample_weights(self, y: NDArray[np.int64]) -> NDArray[np.float64] | None:
         """Compute sample weights based on the ``class_weights`` parameter."""
         if self.class_weights is None:
             return None
@@ -117,9 +115,7 @@ class BroadLearningSystem(BaseEstimator, ClassifierMixin):  # type: ignore[misc]
         self._map_biases: list[NDArray[np.float64]] = []
         z_parts = []
         for _ in range(self.n_feature_groups):
-            weights, biases = self._generate_weights(
-                X.shape[1], self.n_feature_nodes_per_group
-            )
+            weights, biases = self._generate_weights(X.shape[1], self.n_feature_nodes_per_group)
             self._map_weights.append(weights)
             self._map_biases.append(biases)
             z_parts.append(self._act_map(X @ weights + biases))
@@ -131,17 +127,13 @@ class BroadLearningSystem(BaseEstimator, ClassifierMixin):  # type: ignore[misc]
         self._enh_biases: list[NDArray[np.float64]] = []
         h_parts = []
         for _ in range(self.n_enhancement_groups):
-            weights, biases = self._generate_weights(
-                Z.shape[1], self.n_enhancement_nodes_per_group
-            )
+            weights, biases = self._generate_weights(Z.shape[1], self.n_enhancement_nodes_per_group)
             self._enh_weights.append(weights)
             self._enh_biases.append(biases)
             h_parts.append(self._act_enh(Z @ weights + biases))
         return np.hstack(h_parts)
 
-    def fit(
-        self, X: NDArray[np.float64], y: NDArray[np.int64]
-    ) -> "BroadLearningSystem":
+    def fit(self, X: NDArray[np.float64], y: NDArray[np.int64]) -> BroadLearningSystem:
         """Train the BLS model.
 
         Args:
@@ -178,13 +170,11 @@ class BroadLearningSystem(BaseEstimator, ClassifierMixin):  # type: ignore[misc]
         if sample_weights is not None:
             # Weighted ridge regression
             diag = np.diag(sample_weights)
-            a_pinv = np.linalg.pinv(
-                a.T @ diag @ a + self.reg_param * np.eye(a.shape[1])
-            ) @ a.T @ diag
+            a_pinv = (
+                np.linalg.pinv(a.T @ diag @ a + self.reg_param * np.eye(a.shape[1])) @ a.T @ diag
+            )
         else:
-            a_pinv = np.linalg.pinv(
-                a.T @ a + self.reg_param * np.eye(a.shape[1])
-            ) @ a.T
+            a_pinv = np.linalg.pinv(a.T @ a + self.reg_param * np.eye(a.shape[1])) @ a.T
 
         # Output weights
         self.W_ = a_pinv @ y_onehot
@@ -230,9 +220,7 @@ class BroadLearningSystem(BaseEstimator, ClassifierMixin):  # type: ignore[misc]
         ]
         return np.hstack(z_parts)
 
-    def _recompute_enhancement_nodes(
-        self, Z: NDArray[np.float64]
-    ) -> NDArray[np.float64]:
+    def _recompute_enhancement_nodes(self, Z: NDArray[np.float64]) -> NDArray[np.float64]:
         """Reconstruct enhancement nodes using stored weights."""
         h_parts = [
             self._act_enh(Z @ weights + biases)
@@ -242,7 +230,7 @@ class BroadLearningSystem(BaseEstimator, ClassifierMixin):  # type: ignore[misc]
 
     def incremental_enhance(
         self, X: NDArray[np.float64], num_new_nodes: int = 100
-    ) -> "BroadLearningSystem":
+    ) -> BroadLearningSystem:
         """Incrementally add one enhancement group with ``num_new_nodes`` nodes.
 
         Uses the Woodbury formula to update the pseudo-inverse without retraining
@@ -277,13 +265,16 @@ class BroadLearningSystem(BaseEstimator, ClassifierMixin):  # type: ignore[misc]
         if not hasattr(self, "A_pinv_"):
             if self.sample_weights_ is not None:
                 diag = np.diag(self.sample_weights_)
-                self.A_pinv_ = np.linalg.pinv(
-                    a_old.T @ diag @ a_old + self.reg_param * np.eye(a_old.shape[1])
-                ) @ a_old.T @ diag
+                self.A_pinv_ = (
+                    np.linalg.pinv(a_old.T @ diag @ a_old + self.reg_param * np.eye(a_old.shape[1]))
+                    @ a_old.T
+                    @ diag
+                )
             else:
-                self.A_pinv_ = np.linalg.pinv(
-                    a_old.T @ a_old + self.reg_param * np.eye(a_old.shape[1])
-                ) @ a_old.T
+                self.A_pinv_ = (
+                    np.linalg.pinv(a_old.T @ a_old + self.reg_param * np.eye(a_old.shape[1]))
+                    @ a_old.T
+                )
 
         d_mat = self.A_pinv_ @ h_new
         c_mat = h_new - a_old @ d_mat

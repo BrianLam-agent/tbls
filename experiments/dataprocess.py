@@ -9,11 +9,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import ClassVar
 
+from imblearn.combine import SMOTEENN, SMOTETomek
+from imblearn.over_sampling import ADASYN, SMOTE, BorderlineSMOTE
+from imblearn.under_sampling import RandomUnderSampler, TomekLinks
 import joblib
 import numpy as np
-from imblearn.combine import SMOTEENN, SMOTETomek
-from imblearn.over_sampling import ADASYN, BorderlineSMOTE, SMOTE
-from imblearn.under_sampling import RandomUnderSampler, TomekLinks
 from sklearn.decomposition import PCA
 from sklearn.feature_selection import SelectKBest, mutual_info_classif
 from sklearn.linear_model import Lasso
@@ -77,7 +77,7 @@ class DataLoader:
             for key in data:
                 if isinstance(data[key], dict) and "data" in data[key]:
                     x = data[key]["data"]
-                    y = data[key]["target"] if "target" in data[key] else None
+                    y = data[key].get("target")
                     break
             else:
                 raise KeyError("pkl must contain a sub-dict with 'data' and 'target'")
@@ -89,9 +89,7 @@ class DataLoader:
         valid_idx = y_arr != -1
         return x_arr[valid_idx], y_arr[valid_idx]
 
-    def _apply_feature_selection(
-        self, X: np.ndarray, y: np.ndarray
-    ) -> np.ndarray:
+    def _apply_feature_selection(self, X: np.ndarray, y: np.ndarray) -> np.ndarray:
         """Structured feature selection."""
         if self.feature_selection in self.FEATURE_SELECTORS:
             config = self.FEATURE_SELECTORS[self.feature_selection]
@@ -106,9 +104,7 @@ class DataLoader:
             return selector.transform(X)
         return X
 
-    def _apply_resampling(
-        self, X: np.ndarray, y: np.ndarray
-    ) -> tuple[np.ndarray, np.ndarray]:
+    def _apply_resampling(self, X: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Structured resampling."""
         if self.resampling in self.RESAMPLERS:
             sampler = self.RESAMPLERS[self.resampling]()
@@ -137,9 +133,7 @@ class DataLoader:
         # Standardize.
         self.scaler.fit(X_train)
         x_train_scaled = self.scaler.transform(X_train)
-        x_test_scaled = (
-            self.scaler.transform(X_test) if X_test is not None else None
-        )
+        x_test_scaled = self.scaler.transform(X_test) if X_test is not None else None
 
         # Feature selection.
         if self.feature_selection:
