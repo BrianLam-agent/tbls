@@ -1,0 +1,91 @@
+name: Changelog
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Existing semantic release tag, including the v prefix.
+        required: true
+        type: string
+      version:
+        description: Semantic version without the v prefix.
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing semantic release tag, including the v prefix.
+        required: true
+        type: string
+      version:
+        description: Semantic version without the v prefix.
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release-notes:
+    name: Generate changelog and publish release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout complete Git history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.tag }}
+
+      - name: Download built distribution
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Generate release changelog
+        id: git-cliff
+        uses: orhun/git-cliff-action@v4
+        with:
+          version: v2.11.0
+          config: cliff.toml
+          args: --latest --strip header
+        env:
+          OUTPUT: RELEASE_NOTES.md
+
+      - name: Append distribution artifact list
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_commit="$(git rev-list -n 1 '${{ inputs.tag }}')"
+          {
+            echo ""
+            echo "## Distribution artifacts"
+            echo ""
+            for f in dist/*; do
+              echo "- \`$(basename "$f")\` (sha256: \`$(sha256sum "$f" | cut -d' ' -f1)\`)"
+            done
+            echo ""
+            echo "Source commit: \`${source_commit}\`"
+          } >> RELEASE_NOTES.md
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(
+            --title "tbls $RELEASE_TAG"
+            --notes-file RELEASE_NOTES.md
+          )
+          if [[ "$RELEASE_VERSION" == *-* ]]; then
+            args+=(--prerelease)
+          fi
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" "${args[@]}"
+            gh release upload "$RELEASE_TAG" dist/* --clobber
+          else
+            gh release create "$RELEASE_TAG" dist/* --verify-tag "${args[@]}"
+          fi

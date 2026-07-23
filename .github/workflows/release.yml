@@ -1,33 +1,100 @@
-# Publish `tbls` to PyPI on GitHub Release.
-#
-# Prerequisite (one-time, manual): register the `tbls` project on PyPI and
-# configure a "Trusted Publisher" pointing at this repo + workflow file, so no
-# API token is stored as a secret. See:
-# https://docs.pypi.org/trusted-publishers/
-
 name: Release
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - 'v*'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
+  validate:
+    name: Validate release tag
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - name: Checkout tagged source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate SemVer tag and master ancestry
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          semver='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
+          if [[ ! "$tag" =~ $semver ]]; then
+            echo "release tag must be vMAJOR.MINOR.PATCH[-PRERELEASE]: $tag" >&2
+            exit 1
+          fi
+          if [[ "$(git rev-list -n 1 "$tag")" != "$GITHUB_SHA" ]]; then
+            echo "tag $tag does not resolve to the triggering commit" >&2
+            exit 1
+          fi
+          git fetch --no-tags origin master
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/master; then
+            echo "release tags must point to a commit reachable from master" >&2
+            exit 1
+          fi
+          version="${tag#v}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Validate pyproject.toml version matches tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          pkg_version="$(grep -m1 '^version = ' pyproject.toml | sed -E 's/version = "(.*)"/\1/')"
+          tag_version="${{ steps.release.outputs.version }}"
+          if [[ "$pkg_version" != "$tag_version" ]]; then
+            echo "pyproject.toml version ($pkg_version) does not match tag version ($tag_version)" >&2
+            echo "bump [project].version in pyproject.toml (and tbls.__version__ in src/tbls/__init__.py) before tagging" >&2
+            exit 1
+          fi
+
+  verify:
+    name: Verify release source
+    needs: validate
+    uses: ./.github/workflows/ci.yml
+
   build:
+    name: Build distribution
+    needs: [validate, verify]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
       - run: uv build
+      - run: uvx twine check dist/*
       - uses: actions/upload-artifact@v4
         with:
           name: dist
           path: dist/
 
+  changelog:
+    name: Publish changelog and GitHub Release
+    needs: [validate, build]
+    permissions:
+      contents: write
+    uses: ./.github/workflows/changelog.yml
+    with:
+      tag: ${{ needs.validate.outputs.tag }}
+      version: ${{ needs.validate.outputs.version }}
+
   publish:
-    needs: build
+    name: Publish to PyPI
+    needs: [validate, build, changelog]
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
