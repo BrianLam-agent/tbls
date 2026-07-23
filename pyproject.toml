@@ -1,0 +1,74 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tbls"
+version = "0.1.0"
+description = "Tree-based Broad Learning System for classification"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [{ name = "TBD" }]
+keywords = [
+    "machine-learning",
+    "broad-learning-system",
+    "decision-trees",
+    "sklearn",
+    "classification",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = ["numpy", "scipy", "scikit-learn"]
+
+[project.urls]
+Homepage = "https://github.com/TBD/tbls"
+Repository = "https://github.com/TBD/tbls"
+Issues = "https://github.com/TBD/tbls/issues"
+
+[project.optional-dependencies]
+cython = ["cython"]
+
+[dependency-groups]
+dev = ["pytest", "pytest-cov", "ruff", "mypy"]
+experiments = [
+    "typer",
+    "pyyaml",
+    "pandas",
+    "imbalanced-learn",
+    "xgboost",
+    "openpyxl",
+    "joblib",
+    "tqdm",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tbls"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/tbls", "tests"]
+
+[tool.mypy]
+# NOTE: bumped from 3.10 (design.md §11) to 3.13 because numpy 2.5's bundled
+# stubs use PEP 695 `type` statements that require Python 3.12+ to parse. The
+# package's `requires-python = ">=3.10"` runtime floor is still enforced by the
+# CI test matrix (3.10–3.13); this only sets mypy's parsing target.
+python_version = "3.13"
+packages = ["tbls"]
+mypy_path = "src"
+strict = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
