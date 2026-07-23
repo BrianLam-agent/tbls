@@ -47,7 +47,9 @@ uv run pre-commit run --all-files
   `.ruff.toml`) — `ruff check .` will fail on missing/malformed docstrings.
 - **Type hints**: full type hints on every public signature in `src/tbls/`;
   `mypy --strict` must pass. `experiments/` is not held to the same bar (it's
-  an internal tool, not a published API).
+  an internal tool, not a published API), though its docstrings *are* (see the
+  next point — the Google-style `D` rules are enforced on `experiments/` too,
+  with only `ARG001` for typer-CLI options relaxed).
 - **Estimator contract**: any new classifier added to `src/tbls/` must be a
   full `sklearn.base.BaseEstimator` + `ClassifierMixin` (see
   [`architecture.md` §5](./architecture.md#5-estimator-contract) for the

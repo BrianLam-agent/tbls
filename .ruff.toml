@@ -82,7 +82,9 @@ ignore = [
 # Tests: docstrings optional, asserts expected, fixtures may shadow names.
 "tests/**" = ["D", "ARG001", "ARG002"]
 # CLI: typer options accessed via signature defaults, not always "used" directly.
-"experiments/**" = ["D", "ARG001"]
+# (D pydocstyle rules are enforced on experiments/ now that Plan 05 brought them up
+# to the same Google-style standard as src/tbls/.)
+"experiments/**" = ["ARG001"]
 # Legacy comparison-algorithm factory migrated verbatim from othercode/ (not part
 # of the published package). These rules flag external-interface conformations
 # that must not be changed in working legacy code: sklearn get_params `deep`
