@@ -437,3 +437,50 @@ def test_compute_if_scores_simple_vectorized_matches_loop() -> None:
         a, y, sigma_if=sigma_if, delta_if=delta_if, min_weight=min_weight
     )
     assert np.allclose(actual, expected, atol=1e-12)
+
+
+def test_compute_if_scores_simple_non_degenerate_on_realistic_scale() -> None:
+    """After-fix: realistic-scale data gives non-degenerate IFS weights.
+
+    Reproduces the GFTBLS-collapse root cause at the IFS layer. On data whose
+    median pairwise distance is ~15-20 (matching the real biomedical scale that
+    exposed the bug), an *absolute* ``sigma_if=1.0`` membership numerically
+    underflows ``mu`` to ~0 for every sample (asserted inline as a
+    self-documenting negative check), collapsing the returned weights ``s`` to
+    the ``min_weight`` clip for all samples. The Plan-07 relativization
+    (``sigma_eff = sigma_if * median_dist``) restores a sane, non-degenerate
+    ``mu``/``s`` distribution that actually differentiates confident vs.
+    borderline samples.
+    """
+    rng = np.random.RandomState(7)
+    # Two overlapping classes in a moderate-dimensional space; the absolute
+    # pairwise-distance scale is ~15-20 (matches the real biomedical dataset).
+    n_per = 30
+    a = np.vstack(
+        [rng.normal(0.0, 1.5, size=(n_per, 100)), rng.normal(0.0, 1.5, size=(n_per, 100))]
+    )
+    y = np.array([0] * n_per + [1] * n_per, dtype=np.int64)
+
+    # Fixture sanity: confirm the distance scale is in the realistic band.
+    d = cdist(a, a, "euclidean")
+    median_dist = np.median(d[~np.eye(len(a), dtype=bool)])
+    assert 5.0 < median_dist < 40.0, f"unexpected median pairwise distance {median_dist}"
+
+    # Negative check: the OLD absolute-sigma formula (sigma_if as an absolute
+    # distance unit) underflows mu to numerical zero for every sample.
+    classes = np.unique(y)
+    centers = {c: a[y == c].mean(axis=0) for c in classes}
+    mu_old = np.array(
+        [np.exp(-(np.linalg.norm(a[i] - centers[y[i]]) ** 2) / (2 * 1.0**2)) for i in range(len(a))]
+    )
+    assert mu_old.max() < 1e-6, (
+        f"expected the pre-fix absolute-sigma mu to collapse to ~0, got max={mu_old.max():.3e}"
+    )
+
+    # After fix: the returned weight vector has non-degenerate spread (not all
+    # samples collapsed to the min_weight floor) and meaningful mass above it.
+    s = compute_if_scores_simple(a, y, sigma_if=1.0, delta_if=0.5, min_weight=1e-4)
+    assert s.min() > 0
+    assert not np.all(np.abs(s - 1e-4) < 1e-6), "every weight collapsed to the min_weight floor"
+    assert s.std() > 1e-3, f"weights have no meaningful spread (std={s.std():.3e})"
+    assert s.max() > 0.5, f"no confident memberships (max={s.max():.3f})"
