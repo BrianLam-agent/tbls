@@ -44,14 +44,32 @@ TBLS_GRID: dict = {
     "reg_param": [1e-8, 1e-4, 1e-2],
 }
 
-# Reserved for a future plan wiring up CCA/GFCCA multi-view feature fusion in
-# this pipeline -- not read by any code path today. See
-# docs/plan/01-tbls-graph-ifs-strategy-and-grid-search.md, "Non-goals".
-# CCA_K = 15
-# CCA_LAMBDA = 0.1
-# KERNEL_GAMMA = 1.0
-# GFCCA_GRAPH_GAMMA = 0.5
-# GFCCA_SIGMA_GRAPH = 0.5  # dead parameter, kept only for reference
-# DISCRIMINATIVE_BETA = 0.3
-# GFCCA_SIGMA_IF = 1.0
-# GFCCA_DELTA_IF = 0.5
+# CCA/GFCCA fusion hyperparameters (multi-view pipelines; see
+# docs/usage-multiview-fusion.md). Keyword names match
+# tbls.cca.build_cca_features / tbls.gfcca.build_gfcca_features exactly (these
+# dicts are passed as **kwargs in experiments/multiview.py::fuse_views).
+CCA_DEFAULTS: dict = {
+    "cca_k": 15,
+    "cca_lambda": 0.1,
+    "kernel_gamma": 1.0,
+}
+CCA_GRID: dict = {
+    "cca_k": [7, 15, 25],
+    "cca_lambda": [0.01, 0.1, 1.0],
+}
+
+GFCCA_DEFAULTS: dict = {
+    "cca_k": 15,
+    "cca_lambda": 0.1,
+    "kernel_gamma": 1.0,
+    "graph_gamma": 0.5,
+    "discriminative_beta": 0.3,
+    "sigma_if": 1.0,
+    "delta_if": 0.5,
+    # sigma_graph is a documented-dead GraphFuzzyKCCA parameter (reserved,
+    # unused) -- intentionally not included here.
+}
+GFCCA_GRID: dict = {
+    "graph_gamma": [0.1, 0.5, 1.0],
+    "discriminative_beta": [0.1, 0.3, 0.5],
+}
