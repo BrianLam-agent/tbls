@@ -1,0 +1,32 @@
+# Ablation config: graph-Laplacian regularization ON, IFS weighting OFF.
+# The discriminative graph term (`build_discriminative_graph_laplacian`) is
+# active at graph_gamma=0.1; IFS sample weighting is disabled so this isolates
+# the graph regularizer's effect on the ridge solve.
+#
+# Run:
+#   uv run --group experiments python experiments/train.py \
+#       --config examples/configs/tbls_graph.yaml --n-splits 2 \
+#       --output-dir examples/runs/tbls_graph
+
+dataset: biomedical_larger
+data_path: examples/datasets/
+
+run_name: tbls_graph   # human-chosen experiment name (run dir stem + figure label)
+
+model:
+  name: tbls
+  n_map_trees: 10
+  n_enhance_trees: 10
+  use_if_weights: false
+  graph_gamma: 0.1
+  random_state: 42
+
+preprocess:
+  feature_selection: lasso
+  resampling: smote
+
+cv:
+  n_splits: 2
+  random_state: 42
+
+output_dir: examples/runs

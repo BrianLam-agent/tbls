@@ -1,0 +1,32 @@
+# Ablation config: GFTBLS -- IFS weighting AND graph regularization both ON.
+# This is the fully-regularized TBLS combination (the one that used to
+# numerically collapse before the Plan 07 `compute_if_scores_simple` bandwidth
+# relativization fix; with the fix in place it runs non-degenerately).
+#
+# Run:
+#   uv run --group experiments python experiments/train.py \
+#       --config examples/configs/tbls_full.yaml --n-splits 2 \
+#       --output-dir examples/runs/tbls_full
+
+dataset: biomedical_larger
+data_path: examples/datasets/
+
+run_name: tbls_full   # human-chosen experiment name (run dir stem + figure label)
+
+model:
+  name: tbls
+  n_map_trees: 10
+  n_enhance_trees: 10
+  use_if_weights: true
+  graph_gamma: 0.1
+  random_state: 42
+
+preprocess:
+  feature_selection: lasso
+  resampling: smote
+
+cv:
+  n_splits: 2
+  random_state: 42
+
+output_dir: examples/runs

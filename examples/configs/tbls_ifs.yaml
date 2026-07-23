@@ -1,0 +1,32 @@
+# Ablation config: FTBLS -- IFS sample weighting ON, graph regularization OFF.
+# Intuitionistic-Fuzzy-Set sample weighting (the TBLS differentiator vs a plain
+# Broad Learning System) is enabled; the graph-Laplacian term stays off.
+# Reads `if_strategy: simple` from the TBLS constructor default.
+#
+# Run:
+#   uv run --group experiments python experiments/train.py \
+#       --config examples/configs/tbls_ifs.yaml --n-splits 2 \
+#       --output-dir examples/runs/tbls_ifs
+
+dataset: biomedical_larger
+data_path: examples/datasets/
+
+run_name: tbls_ifs   # human-chosen experiment name (run dir stem + figure label)
+
+model:
+  name: tbls
+  n_map_trees: 10
+  n_enhance_trees: 10
+  use_if_weights: true
+  graph_gamma: 0.0
+  random_state: 42
+
+preprocess:
+  feature_selection: lasso
+  resampling: smote
+
+cv:
+  n_splits: 2
+  random_state: 42
+
+output_dir: examples/runs

@@ -1,0 +1,43 @@
+# Ablation config: plain TBLS (no IFS, no graph regularization).
+# Baseline of the ablation set -- the Broad Learning System backbone with tree
+# feature mapping + enhancement, but NO Intuitionistic-Fuzzy-Set sample
+# weighting and NO graph-Laplacian regularization (both off = the original TBLS
+# paper's plain configuration).
+#
+# Run:
+#   uv run --group experiments python experiments/train.py \
+#       --config examples/configs/tbls_plain.yaml --n-splits 2 \
+#       --output-dir examples/runs/tbls_plain
+#
+# All four ablation configs share dataset/data_path/preprocess/cv so the only
+# varying axis is the TBLS regularizer pair (use_if_weights, graph_gamma):
+#   tbls_plain : (false, 0.0)   <- this file
+#   tbls_ifs   : (true,  0.0)
+#   tbls_graph : (false, 0.1)
+#   tbls_full  : (true,  0.1)   <- GFTBLS, the fully-regularized variant
+#
+# See docs/usage-tbls.md for the IFS / graph parameters and
+# examples/README.md for how to overlay all four on one figure.
+
+dataset: biomedical_larger
+data_path: examples/datasets/
+
+run_name: tbls_plain   # human-chosen experiment name (run dir stem + figure label)
+
+model:
+  name: tbls
+  n_map_trees: 10
+  n_enhance_trees: 10
+  use_if_weights: false
+  graph_gamma: 0.0
+  random_state: 42
+
+preprocess:
+  feature_selection: lasso
+  resampling: smote
+
+cv:
+  n_splits: 2
+  random_state: 42
+
+output_dir: examples/runs

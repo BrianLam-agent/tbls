@@ -1324,7 +1324,6 @@ def create_classifier(
         params = {
             "C": 1.0,
             "class_weight": "balanced",
-            "multi_class": "multinomial",
             "solver": "lbfgs",
             "max_iter": 1000,
             "random_state": random_state,
@@ -1338,7 +1337,6 @@ def create_classifier(
             "solver": "saga",
             "C": 1.0,
             "class_weight": "balanced",
-            "multi_class": "multinomial",
             "max_iter": 1000,
             "random_state": random_state,
         }
@@ -1352,7 +1350,6 @@ def create_classifier(
             "l1_ratio": 0.5,
             "C": 1.0,
             "class_weight": "balanced",
-            "multi_class": "multinomial",
             "max_iter": 1000,
             "random_state": random_state,
         }

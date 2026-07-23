@@ -24,16 +24,20 @@ from typing import Literal, TypedDict
 from metrics_schema import MetricsDict
 
 
-class RunStartedEvent(TypedDict):
+class RunStartedEvent(TypedDict, total=False):
     """Emitted once at the start of a ``train.py`` run.
 
     Attributes:
         event: Literal event discriminator (``"run_started"``).
         dataset: Dataset stem loaded by the run.
-        model: Model name (``"tbls"`` or ``"bls"``).
+        model: Model name (``"tbls"``, ``"bls"``, or any baseline name from
+            :func:`experiments.classifiers.create_classifier`).
         fusion_method: Active fusion method for multi-view cohorts, or
             ``None`` for single-view runs.
         grid: Whether ``--grid`` is sweeping the hyperparameter grid.
+        run_name: Optional human-chosen experiment name set in YAML as
+            ``run_name:`` (preferred for figure labels over the auto-generated
+            ``{model}_{dataset}/{timestamp}`` fallback). Absent when not set.
     """
 
     event: Literal["run_started"]
@@ -41,6 +45,7 @@ class RunStartedEvent(TypedDict):
     model: str
     fusion_method: str | None
     grid: bool
+    run_name: str | None
 
 
 class FoldCompletedEvent(TypedDict):

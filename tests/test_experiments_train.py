@@ -11,6 +11,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 from sklearn.datasets import make_classification
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.svm import SVC
 
 pytest.importorskip("imblearn")  # experiments-only dep; skip otherwise
 
@@ -51,8 +54,31 @@ def test_build_model_grid_point_wins() -> None:
     assert model.n_map_trees == 13  # grid point overrides config
 
 
+def test_build_model_baseline_dispatch_lr() -> None:
+    """Baseline ``model.name: lr`` builds a sklearn LogisticRegression."""
+    model = _build_model({"name": "lr"})
+    # create_classifier('lr') wraps LogisticRegression with class_weight='balanced'.
+    assert isinstance(model, LogisticRegression)
+    assert model.get_params()["class_weight"] == "balanced"
+
+
+def test_build_model_baseline_dispatch_rf_and_svm() -> None:
+    """Baseline ``model.name: rf`` and ``svm`` build sklearn estimators."""
+    assert isinstance(_build_model({"name": "rf"}), RandomForestClassifier)
+    assert isinstance(_build_model({"name": "svm"}), SVC)
+
+
+def test_build_model_baseline_forwards_random_state_and_kwargs() -> None:
+    """Baseline YAML model overrides (random_state, C, ...) reach the estimator."""
+    model = _build_model({"name": "lr", "random_state": 7, "C": 2.0})
+    assert isinstance(model, LogisticRegression)
+    assert model.get_params()["random_state"] == 7
+    assert model.get_params()["C"] == 2.0
+
+
 def test_build_model_invalid_name_raises() -> None:
-    with pytest.raises(ValueError, match=r"model\.name"):
+    """A name unknown to both the in-package tier and create_classifier raises."""
+    with pytest.raises(ValueError, match=r"Unknown classifier"):
         _build_model({"name": "bogus"})
 
 

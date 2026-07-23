@@ -30,6 +30,7 @@ from sklearn.model_selection import KFold, ParameterGrid
 import typer
 import yaml
 
+from classifiers import create_classifier
 from dataprocess import DataLoader
 from evaluate import TBLSEvaluator, TBLSResultSaver
 from hyperparams import (
@@ -189,13 +190,32 @@ def _build_model(
     model_cfg: dict[str, Any],
     grid_point: dict[str, Any] | None = None,
 ) -> BaseEstimator:
-    """Build a ``TBLS`` or ``BroadLearningSystem`` from the model config.
+    """Build a model from the YAML ``model`` section.
 
-    Defaults come from ``experiments.hyperparams`` (``TBLS_DEFAULTS`` /
-    ``BLS_DEFAULTS``); the YAML ``model`` section overrides them, with legacy
-    keys ``map_num``/``enhance_num`` translated to ``n_map_trees``/
-    ``n_enhance_trees``. When ``grid_point`` is given (a dict of direct
-    constructor parameter names), it is applied last and wins.
+    Two tiers:
+
+    1. ``tbls`` and ``bls`` build the in-package :class:`tbls.TBLS` /
+       :class:`tbls.BroadLearningSystem` with defaults from
+       :mod:`experiments.hyperparams` (``TBLS_DEFAULTS`` / ``BLS_DEFAULTS``),
+       YAML ``model`` overrides (legacy keys ``map_num``/``enhance_num`` map
+       to ``n_map_trees``/``n_enhance_trees``), and ``grid_point`` applied last.
+    2. Any other ``name`` is dispatched to
+       :func:`experiments.classifiers.create_classifier` (rf, svm, knn, lr,
+       xgb, lgb, catboost, cart, mlp, extratrees, gbdt, nb, lda, ...), with the
+       YAML ``model`` overrides forwarded as ``**kwargs`` and a ``random_state``
+       read from ``model.random_state`` (default 42). Grid search only applies to
+       the in-package ``tbls``/``bls`` estimators (see ``_run_grid``); baseline
+       classifiers are not swept by ``--grid``.
+
+    Args:
+        model_cfg: The parsed YAML ``model`` section (must contain ``name``).
+        grid_point: Optional dict of direct constructor-parameter names applied
+            last and winning; only honored for the in-package ``tbls``/``bls``
+            tier.
+
+    Raises:
+        ValueError: ``model.name`` is not recognized by either the in-package
+            tier or :func:`create_classifier`.
     """
     name = model_cfg.get("name", "tbls")
     if name == "tbls":
@@ -205,7 +225,11 @@ def _build_model(
         defaults = BLS_DEFAULTS
         cls = BroadLearningSystem
     else:
-        raise ValueError(f"Unsupported model.name: {name!r}. Expected 'tbls' or 'bls'.")
+        # Baseline / comparison classifiers from experiments.classifiers.
+        # Soft dependencies (xgb/lgb/catboost/torch) raise ImportError at build
+        # time if not installed; that surfaces clearly to the user.
+        extra = {k: v for k, v in model_cfg.items() if k not in ("name", "random_state")}
+        return create_classifier(name, random_state=int(model_cfg.get("random_state", 42)), **extra)
 
     valid = set(inspect.signature(cls).parameters)
     overrides: dict[str, Any] = {}
@@ -397,8 +421,14 @@ def _run_grid(
 @app.command()
 def train(
     config: Path = typer.Option(Path("experiments/configs/default.yaml"), help="YAML config path."),  # noqa: B008
+    config_dir: Path | None = typer.Option(  # noqa: B008
+        None,
+        "--config-dir",
+        help="Directory of YAML configs to run sequentially (all *.yaml/*.yml in "
+        "sorted filename order). Conflicts with --config; pick one.",
+    ),
     dataset: str | None = typer.Option(None, help="Override config dataset name."),
-    model: str | None = typer.Option(None, help="Override model name (tbls|bls)."),
+    model: str | None = typer.Option(None, help="Override model name (tbls|bls|lr|rf|svm|...)."),
     map_num: int | None = typer.Option(None, help="Override mapping node count (TBLS)."),
     n_splits: int | None = typer.Option(None, help="Override CV fold count."),
     output_dir: str | None = typer.Option(None, help="Override output directory."),
@@ -412,7 +442,35 @@ def train(
         False, "--grid", help="Sweep the hyperparameter grid and write a ranked GridSummary."
     ),
 ) -> None:
-    """Run a TBLS/BLS training experiment from a YAML config."""
+    """Run one or more TBLS/BLS/baseline experiments from YAML configs.
+
+    With ``--config PATH`` a single config runs. With ``--config-dir DIR`` every
+    ``*.yaml``/``*.yml`` in ``DIR`` (sorted) runs sequentially, each with its
+    own run directory, JSONL log, and predictions side-file. CLI overrides
+    (``--dataset``, ``--n-splits``, ...) apply to every config in the batch.
+    """
+    if config_dir is not None:
+        configs = sorted([*config_dir.glob("*.yaml"), *config_dir.glob("*.yml")])
+        if not configs:
+            raise FileNotFoundError(f"No *.yaml/*.yml configs found in {config_dir}")
+        for cfg_path in configs:
+            logger.info(f"batch: running {cfg_path.name} ({len(configs)} config(s))")
+            _run_one_config(cfg_path, dataset, model, map_num, n_splits, output_dir, fusion, grid)
+        return
+    _run_one_config(config, dataset, model, map_num, n_splits, output_dir, fusion, grid)
+
+
+def _run_one_config(
+    config: Path,
+    dataset: str | None,
+    model: str | None,
+    map_num: int | None,
+    n_splits: int | None,
+    output_dir: str | None,
+    fusion: str | None,
+    grid: bool,
+) -> None:
+    """Load one YAML, apply CLI overrides, run the full dataset/cohort loop."""
     cfg = yaml.safe_load(config.read_text())
     if dataset is not None:
         cfg["dataset"] = dataset
@@ -436,11 +494,17 @@ def train(
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     out_base = Path(cfg.get("output_dir", "results_dir"))
     model_name = cfg.get("model", {}).get("name", "tbls")
+    # Optional distinct experiment name (preferred for figures/labels over
+    # the auto-generated ``{model}_{dataset}/{timestamp}`` fallback). When set
+    # in YAML (top-level ``run_name:``), it replaces the run directory stem,
+    # the JSONL filename, and the ``run_started`` event's ``run_name`` field, so
+    # ``experiments/visualize.py`` can tag runs with a human-chosen label.
+    run_name = str(cfg.get("run_name") or f"{model_name}_{dataset_name}")
 
     # Dual-sink logging (human-readable stdout + structured JSONL file) at the
     # run-level dir. The JSONL and the ``.npz`` predictions side-file live
     # under ``run_dir/logs/``; per-key Excel dirs are siblings of ``run_dir``.
-    run_dir = out_base / f"{model_name}_{dataset_name}" / timestamp
+    run_dir = out_base / run_name / timestamp
     configure_logging(run_dir, dataset_name, timestamp)
     run_start = time.perf_counter()
     started_event: RunStartedEvent = {
@@ -449,6 +513,7 @@ def train(
         "model": model_name,
         "fusion_method": cfg.get("fusion", {}).get("method"),
         "grid": grid,
+        "run_name": run_name if cfg.get("run_name") else None,
     }
     logger.bind(**started_event).info("run_started")
 
@@ -466,7 +531,7 @@ def train(
         else:
             x, y = cohort
             logger.info(f"=== {dataset_name} / {key} : X={x.shape} y={y.shape} ===")
-        result_dir = out_base / f"{model_name}_{dataset_name}" / key / timestamp
+        result_dir = out_base / run_name / key / timestamp
         saver = TBLSResultSaver(
             dataset_name=dataset_name,
             timestamp=timestamp,
@@ -477,7 +542,17 @@ def train(
             output_dir=str(result_dir),
         )
 
-        if grid:
+        # ``--grid`` only sweeps the in-package TBLS/BLS hyperparameter grids
+        # (``TBLS_GRID``/``BLS_GRID`` in hyperparams.py). Baseline classifiers
+        # (lr/rf/svm/...) are not swept here; if ``--grid`` was passed for a
+        # baseline, fall back to a single CV run and warn so the user is not
+        # silently dropped.
+        if grid and model_name not in ("tbls", "bls"):
+            logger.info(
+                f"--grid ignored for model.name={model_name!r} "
+                "(baseline; not swept). Running single k-fold."
+            )
+        if grid and model_name in ("tbls", "bls"):
             _run_grid(cfg, cohort, dataset_name, key, model_name, saver)
         else:
             pred_npz = run_dir / "logs" / f"{dataset_name}_{timestamp}_{key}_predictions.npz"

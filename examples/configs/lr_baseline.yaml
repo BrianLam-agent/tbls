@@ -1,0 +1,34 @@
+# Baseline config: Logistic Regression (sklearn LogisticRegression, class_weight='balanced').
+#
+# Dispatched to experiments.classifiers.create_classifier('lr', ...) by
+# _build_model's baseline tier. Use this to compare the TBLS ablation runs
+# (tbls_plain/ifs/graph/full) against a standard logistic-regression baseline
+# on the same dataset, feature selection, and CV split.
+#
+# Run:
+#   uv run --group experiments python experiments/train.py \
+#       --config examples/configs/lr_baseline.yaml --n-splits 2 \
+#       --output-dir examples/runs
+
+dataset: biomedical_larger
+data_path: examples/datasets/
+
+run_name: lr_baseline   # human-chosen experiment name (run dir stem + figure label)
+
+model:
+  name: lr              # -> experiments.classifiers.create_classifier('lr')
+  C: 1.0
+  random_state: 42
+
+preprocess:
+  feature_selection: lasso
+  # No resampling for the baseline (resampling: null); the baseline sees the
+  # Lasso-selected train split as-is, so the comparison is "TBLS+SMOTE vs LR".
+  # To share TBLS's exact preprocessing, set resampling: smote here.
+  resampling: null
+
+cv:
+  n_splits: 2
+  random_state: 42
+
+output_dir: examples/runs

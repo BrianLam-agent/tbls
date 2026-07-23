@@ -43,6 +43,16 @@ plots/
 *.xlsx
 !docs/**/*.xlsx
 
+# --- examples/ run outputs (config + scripts ARE tracked; data + outputs are not) ---
+examples/datasets/*.pkl
+examples/datasets/*.pickle
+examples/datasets/*.csv
+examples/datasets/*.h5
+examples/datasets/*.npz
+!examples/datasets/README.md
+examples/runs/
+examples/plots/
+
 # --- IDE ---
 .idea/
 .vscode/
