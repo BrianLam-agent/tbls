@@ -221,7 +221,13 @@ def _validate_view_groups(
 ) -> list[list[str]]:
     """Validate ``view_groups`` is a partition of ``view_names``; default if None."""
     if view_groups is None:
-        return [[name] for name in sorted(view_names)]
+        # Default: fuse every view present in the cohort together as one group
+        # (docs/usage-multiview-fusion.md Section 4's documented default -- the
+        # existing all-pairs build_cca_features/build_gfcca_features behavior,
+        # unchanged). A *singleton* group is passthrough (see below); the
+        # unqualified default must be one group containing all views, not one
+        # singleton group per view (which would silently skip fusion entirely).
+        return [sorted(view_names)]
     flat: list[str] = []
     for group in view_groups:
         flat.extend(group)

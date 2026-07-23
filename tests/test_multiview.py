@@ -163,17 +163,27 @@ def test_resampling_index_based_keeps_views_aligned(method: str) -> None:
     assert np.allclose(xb_recovered, xa_recovered + 1.0)
 
 
-def test_fuse_views_single_group_cca() -> None:
-    views, y = _make_synthetic_2view()
+def test_fuse_views_default_view_groups_fuses_all_views_together() -> None:
+    """Regression guard: ``view_groups=None`` must fuse, not silently passthrough.
+
+    A prior implementation defaulted ``None`` to one singleton group per view
+    (pure passthrough, no CCA/GFCCA call at all), silently contradicting
+    docs/usage-multiview-fusion.md Section 4 ("every view fused together as one
+    group"). With 2 views and ``cca_k=5`` the fused width must be exactly
+    ``2 * cca_k = 10``, not ``8 + 8 = 16`` (the raw per-view concatenation that
+    a passthrough default would silently produce).
+    """
+    views, y = _make_synthetic_2view()  # 2 views, 8 features each
     loader = MultiViewDataLoader()
     pv, yv, _ = loader.preprocess_views(views, y)
     f_train, f_test = fuse_views(pv, yv, pv, "cca", None, cca_k=5, cca_lambda=0.1, kernel_gamma=1.0)
     assert f_train.shape[0] == yv.shape[0]
-    assert f_train.shape[1] == f_test.shape[1]
+    assert f_train.shape[1] == f_test.shape[1] == 2 * 5  # 1 pair * (k for each view)
     assert np.isfinite(f_train).all() and np.isfinite(f_test).all()
 
 
 def test_fuse_views_single_group_gfcca() -> None:
+    """Same regression as the CCA case: default view_groups must actually fuse."""
     views, y = _make_synthetic_2view()
     loader = MultiViewDataLoader()
     pv, yv, _ = loader.preprocess_views(views, y)
@@ -192,7 +202,7 @@ def test_fuse_views_single_group_gfcca() -> None:
         delta_if=0.5,
     )
     assert f_train.shape[0] == yv.shape[0]
-    assert f_train.shape[1] == f_test.shape[1]
+    assert f_train.shape[1] == f_test.shape[1] == 2 * 5  # 1 pair * (k for each view)
     assert np.isfinite(f_train).all()
 
 
@@ -259,7 +269,7 @@ def test_train_cli_multiview_smoke(tmp_path: Path) -> None:
         "model": {"name": "tbls", "map_num": 5, "enhance_num": 5},
         "cv": {"n_splits": 2, "random_state": 0},
         "preprocess": {},
-        "fusion": {"method": "cca", "view_groups": [["view_a", "view_b"]]},
+        "fusion": {"method": "cca"},  # view_groups omitted -> must default to fusing all views
         "output_dir": str(tmp_path / "out"),
     }
     saver = TBLSResultSaver(
