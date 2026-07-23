@@ -50,7 +50,7 @@ output).
 | `tree_max_features_ratio` | `0.7` | Fraction of input features each tree samples (Random Subspace Method). |
 | `reg_param` | `1e-4` | Ridge regularization strength for the output-weight solve. |
 | `use_if_weights` | `False` | If `True`, weight training samples by their Intuitionistic Fuzzy Set credibility score (down-weights ambiguous/boundary samples). |
-| `if_sigma` | `1.0` | Neighborhood-radius scale for the IFS score. |
+| `if_sigma` | `1.0` | Gaussian membership bandwidth, in units of the data's median pairwise Euclidean distance (not an absolute scale; matches `if_delta`). |
 | `graph_gamma` | `0.0` | Weight of graph-Laplacian regularization; `0` disables it entirely (no graph is even built). |
 | `graph_alpha_in` / `graph_alpha_p` | `1.0` / `1.0` | Relative weight of the intrinsic (within-class) vs. penalty (between-class) graph Laplacian. |
 | `graph_knn` | `10` | Number of nearest neighbors used to build the similarity graph. `<= 0` means fully connected. |
@@ -59,7 +59,7 @@ output).
 | `graph_strategy` | `"discriminative"` | Graph-Laplacian formula: `"discriminative"` (default, `GraphFuzzyKCCA`'s tuned label-only `Lw - beta*Lb`) or `"knn"` (the original kNN-graph). |
 | `if_strategy` | `"simple"` | IFS scoring formula: `"simple"` (default, `GraphFuzzyKCCA`'s tuned per-class-center + relative-neighborhood) or `"geib"` (the original GEIB formulation). |
 | `discriminative_beta` | `0.3` | Between-class penalty weight for `graph_strategy="discriminative"`. |
-| `if_delta` | `0.5` | Relative neighborhood threshold for `if_strategy="simple"`. |
+| `if_delta` | `0.5` | Relative neighborhood threshold (in units of the data's median pairwise Euclidean distance) for `if_strategy="simple"`. |
 | `if_min_weight` | `1e-4` | Minimum IFS weight clip for `if_strategy="simple"`. |
 
 `graph_threshold` and `class_sensitive` are reserved constructor parameters

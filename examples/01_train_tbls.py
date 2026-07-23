@@ -96,13 +96,13 @@ def main() -> int:
     #    TBLS differentiator versus a plain Broad Learning System. NOTE:
     #    ``use_if_weights=True`` is set explicitly here (it is NOT TBLS's
     #    constructor default, which is False) to showcase the IFS feature.
-    #    ``graph_gamma`` is left at its default 0.0 (graph regularization off):
-    #    the combination ``use_if_weights=True`` + ``graph_gamma=0.1`` collapses
-    #    to all-one-class predictions on this dataset (balanced_accuracy 0.5),
-    #    while ``use_if_weights=True`` alone is non-degenerate and matches the
-    #    smoke-test reference (~0.92 accuracy). That collapse is flagged as a
-    #    separate finding in the plan-03 acceptance report -- not fixed here
-    #    (out of scope: this plan adds examples only, no library changes).
+    #    ``graph_gamma`` is kept at its default 0.0 (graph regularization off)
+    #    so this example isolates the IFS-only effect; the previously-stale
+    #    caveat that ``use_if_weights=True`` + ``graph_gamma>0`` collapsed to
+    #    all-one-class predictions here has been fixed upstream (Plan 07
+    #    relativized ``compute_if_scores_simple``'s Gaussian membership
+    #    bandwidth), so that combination now also runs non-degenerately on this
+    #    dataset -- try it by setting ``graph_gamma=0.1``.
     #    ``graph_strategy="discriminative"`` and ``if_strategy="simple"`` are
     #    the constructor defaults.
     model = TBLS(

@@ -42,7 +42,7 @@ y_proba = model.predict_proba(X_test)  # 形状 (n_samples, n_classes)
 | `tree_max_features_ratio` | `0.7` | 每棵树采样的输入特征比例（随机子空间方法）。 |
 | `reg_param` | `1e-4` | 输出权重求解的岭正则化强度。 |
 | `use_if_weights` | `False` | 若为 `True`，按样本的直觉模糊集可信度评分对其加权（降低模糊/边界样本的权重）。 |
-| `if_sigma` | `1.0` | IFS 评分的邻域半径尺度。 |
+| `if_sigma` | `1.0` | 高斯隶属度带宽，以数据中位成对欧氏距离为单位（非绝对尺度，与 `if_delta` 一致）。 |
 | `graph_gamma` | `0.0` | 图拉普拉斯正则化权重；`0` 完全禁用（甚至不构建图）。 |
 | `graph_alpha_in` / `graph_alpha_p` | `1.0` / `1.0` | 内在（类内）与惩罚（类间）图拉普拉斯的相对权重。 |
 | `graph_knn` | `10` | 构建相似图所用的最近邻数。`<= 0` 表示全连接。 |
@@ -51,7 +51,7 @@ y_proba = model.predict_proba(X_test)  # 形状 (n_samples, n_classes)
 | `graph_strategy` | `"discriminative"` | 图拉普拉斯公式：`"discriminative"`（默认，`GraphFuzzyKCCA` 调优过的、仅基于标签的 `Lw - beta*Lb`）或 `"knn"`（原始 kNN 图）。 |
 | `if_strategy` | `"simple"` | IFS 评分公式：`"simple"`（默认，`GraphFuzzyKCCA` 调优过的逐类中心 + 相对邻域）或 `"geib"`（原始 GEIB 公式）。 |
 | `discriminative_beta` | `0.3` | `graph_strategy="discriminative"` 时的类间惩罚权重。 |
-| `if_delta` | `0.5` | `if_strategy="simple"` 时的相对邻域阈值。 |
+| `if_delta` | `0.5` | `if_strategy="simple"` 时的相对邻域阈值（以数据中位成对欧氏距离为单位）。 |
 | `if_min_weight` | `1e-4` | `if_strategy="simple"` 时的 IFS 权重最小裁剪值。 |
 
 `graph_threshold` 与 `class_sensitive` 为保留的构造参数，仅为兼容 `sklearn.base.clone()`/`get_params()` 而保留，当前在 `fit` 内部并不使用。
