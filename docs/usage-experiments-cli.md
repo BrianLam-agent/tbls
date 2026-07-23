@@ -223,3 +223,81 @@ dependencies `tbls`'s own training pipeline needs (`xgboost` included,
 `results_dir/` (or whatever `output_dir` you configure) is git-ignored — see
 the root `.gitignore`. Nothing under it is meant to be committed; treat it as
 scratch output, same as `dist/`, `.pytest_cache/`, etc.
+
+## Logging and visualization
+
+### Structured JSONL logs
+
+Every `train.py` run writes, alongside the Excel output, a structured
+line-delimited JSON log at
+`{output_dir}/{model}_{dataset}/{timestamp}/logs/{dataset}_{timestamp}.jsonl`.
+This is a **second** sink (loguru, `serialize=True`) — one JSON object per line,
+including the human-readable message under `record.text` and any bound event
+under `record.extra`. The stdout human-readable stream is kept (INFO level,
+colorized) so eyeballed output stays familiar.
+
+Each run emits four event types (see
+[`experiments/logging_schema.py`](../experiments/logging_schema.py) for the
+exact fields — they are documented as `TypedDict`s so the event shape is
+mypy-checkable and IDE-discoverable, not re-typed here):
+
+| Event | When | Key payload |
+|---|---|---|
+| `run_started` | once per run | dataset, model, fusion_method, grid |
+| `fold_completed` | per fold (per cohort) | scalar metrics, grid_idx/grid_params (under `--grid`), predictions_file |
+| `grid_summary` | once per cohort after `--grid` ranks | winner_params, winner_metric, n_grid_points |
+| `run_finished` | once per run | duration_seconds |
+
+The scalar metrics in `fold_completed` follow the
+[`experiments/metrics_schema.py::MetricsDict`](../experiments/metrics_schema.py)
+schema (binary path unchanged from before; multiclass path adds macro/weighted
+metrics and MCC/Kappa; new keys `mcc`, `cohen_kappa`, and binary-with-`y_score`
+`log_loss`/`brier_score` are additive — no existing column was renamed).
+
+### Raw-prediction side-file (for ROC / PR / confusion-matrix plots)
+
+To keep the JSONL small, `fold_completed` carries only **scalar** metrics. The
+raw per-fold `y_true` / `y_pred` / `y_score` arrays needed for ROC/PR/confusion
+plots are written to a `.npz` side-file at
+`logs/{dataset}_{timestamp}_{key}_predictions.npz`, keyed by
+`{key}_fold{N}_{y_true,y_pred,y_score}`. This side-file is produced for
+**non-grid** runs only (a 27-point grid sweep over `n_splits` folds would
+explode its size), so ROC/PR/confusion-matrix plots are available for plain
+`train.py` runs; `--grid` runs still get the per-fold bar and grid-search
+summary plots (which need only scalars). The `predictions_file` field in each
+`fold_completed` event names its side-file (or is `None` for grid runs).
+
+### `visualize.py` CLI
+
+[`experiments/visualize.py`](../experiments/visualize.py) reads one or more run
+directories' JSONL logs and renders static matplotlib PNGs:
+
+```bash
+# one run
+uv run --group experiments python experiments/visualize.py \
+    --dir results_dir/tbls_biomedical_larger/20260724_034914
+
+# compare two runs (e.g. plain vs --grid) on the same figures
+uv run --group experiments python experiments/visualize.py \
+    --dir results_dir/tbls_biomedical_larger/20260724_034914 \
+    --dir results_dir/tbls_biomedical_larger/20260724_035015 \
+    --output-dir plots/comparison
+```
+
+It produces (under `--output-dir`, default `plots/` next to the first `--dir`):
+
+| File | Needs | Scope |
+|---|---|---|
+| `per_fold_metrics.png` | scalar `fold_completed` metrics | always |
+| `grid_search_summary.png` | grid-point `fold_completed` rows (+`GridSummaryEvent`) | `--grid` runs |
+| `roc_curves.png` | `.npz` side-file | non-grid runs only |
+| `pr_curves.png` | `.npz` side-file | non-grid runs only |
+| `confusion_{run}.png` | `.npz` side-file | non-grid runs only |
+
+With multiple `--dir` values, each run is tagged (dataset/model/timestamp from
+its `run_started` event) and the runs are overlaid on the same figures (per-cohort
+metric bars grouped by run; ROC/PR curves one line per run×cohort). Raw-array
+plots (ROC/PR/confusion) are only rendered for runs that have an `.npz`
+side-file; grid runs without one are skipped for those three plots with a note
+on stdout — not silently dropped. This additive-only logging/visualization
+upgrade does not change the existing Excel output columns.

@@ -39,6 +39,7 @@ experiments/datasets/*.npz
 # --- Experiment outputs ---
 results_dir/
 experiments/results/
+plots/
 *.xlsx
 !docs/**/*.xlsx
 
