@@ -1,9 +1,13 @@
 """Evaluation metrics and result persistence for TBLS experiments.
 
-`TBLSEvaluator` is a thin wrapper over sklearn metrics for binary/imbalanced
-classification. `TBLSResultSaver` writes fold results and summaries to Excel.
-Both are self-contained (no `tbls` package coupling) and were extracted verbatim
-from the legacy root `tbls.py`.
+`TBLSEvaluator` is a thin wrapper over sklearn metrics for binary **and
+multiclass** imbalanced classification. `TBLSResultSaver` writes fold results
+and summaries to Excel. Both are self-contained (no `tbls` package coupling)
+and were extracted verbatim from the legacy root `tbls.py`.
+
+The metrics schema is owned by :mod:`experiments.metrics_schema` (imported
+here rather than redefined) so the logging event schema can reference the same
+type without an import cycle.
 """
 
 from __future__ import annotations
@@ -17,20 +21,186 @@ import pandas as pd
 from sklearn.metrics import (
     accuracy_score,
     average_precision_score,
+    balanced_accuracy_score,
+    brier_score_loss,
+    cohen_kappa_score,
     confusion_matrix,
     f1_score,
     hamming_loss,
+    log_loss,
+    matthews_corrcoef,
+    multilabel_confusion_matrix,
     precision_score,
     recall_score,
     roc_auc_score,
     roc_curve,
 )
 
+from metrics_schema import MetricsDict
+
 logger = logging.getLogger(__name__)
 
 
+def _binary_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> MetricsDict:
+    """Binary-classification scalar metrics (no probability-based keys).
+
+    Preserves the exact values the original ``calculate_metrics`` produced for
+    the binary path -- this is the regression-tested set; new scalar keys
+    (``mcc``/``cohen_kappa``) are additive.
+
+    Args:
+        y_true: True 0/1 labels, shape ``(n_samples,)``.
+        y_pred: Predicted 0/1 labels, shape ``(n_samples,)``.
+
+    Returns:
+        Scalar (non-probability) metrics for binary classification.
+    """
+    metrics: MetricsDict = {}
+    tn, fp, fn, _ = confusion_matrix(y_true, y_pred).ravel()
+    metrics["accuracy"] = accuracy_score(y_true, y_pred)
+    metrics["precision"] = precision_score(y_true, y_pred, zero_division=0)
+    metrics["recall"] = recall_score(y_true, y_pred, zero_division=0)
+    metrics["f1_score"] = f1_score(y_true, y_pred, zero_division=0)
+    metrics["hamming_loss"] = hamming_loss(y_true, y_pred)
+    metrics["specificity"] = tn / (tn + fp) if (tn + fp) > 0 else 0
+    metrics["negative_predictive_value"] = tn / (tn + fn) if (tn + fn) > 0 else 0
+    metrics["balanced_accuracy"] = (metrics["recall"] + metrics["specificity"]) / 2
+    metrics["gmean"] = float(np.sqrt(metrics["recall"] * metrics["specificity"]))
+    metrics["mcc"] = matthews_corrcoef(y_true, y_pred)
+    metrics["cohen_kappa"] = cohen_kappa_score(y_true, y_pred)
+    return metrics
+
+
+def _multiclass_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> MetricsDict:
+    """Multiclass scalar metrics (no probability-based keys).
+
+    Specificity / NPV / g-mean are macro-averaged via one-vs-rest
+    :func:`sklearn.metrics.multilabel_confusion_matrix`; balanced accuracy
+    uses :func:`sklearn.metrics.balanced_accuracy_score` (already multiclass
+    aware) rather than the binary hand-derivation.
+
+    Args:
+        y_true: True labels, shape ``(n_samples,)``.
+        y_pred: Predicted labels, shape ``(n_samples,)``.
+
+    Returns:
+        Scalar (non-probability) metrics for multiclass classification.
+    """
+    metrics: MetricsDict = {}
+    metrics["accuracy"] = accuracy_score(y_true, y_pred)
+    metrics["precision"] = precision_score(y_true, y_pred, average="macro", zero_division=0)
+    metrics["recall"] = recall_score(y_true, y_pred, average="macro", zero_division=0)
+    metrics["f1_score"] = f1_score(y_true, y_pred, average="macro", zero_division=0)
+    metrics["precision_weighted"] = precision_score(
+        y_true, y_pred, average="weighted", zero_division=0
+    )
+    metrics["recall_weighted"] = recall_score(y_true, y_pred, average="weighted", zero_division=0)
+    metrics["f1_weighted"] = f1_score(y_true, y_pred, average="weighted", zero_division=0)
+    metrics["hamming_loss"] = hamming_loss(y_true, y_pred)
+    metrics["balanced_accuracy"] = balanced_accuracy_score(y_true, y_pred)
+    metrics["mcc"] = matthews_corrcoef(y_true, y_pred)
+    metrics["cohen_kappa"] = cohen_kappa_score(y_true, y_pred)
+
+    # One-vs-rest per-class specificity / NPV / gmean, macro-averaged.
+    mcm = multilabel_confusion_matrix(y_true, y_pred)
+    specs: list[float] = []
+    npvs: list[float] = []
+    gmeans: list[float] = []
+    for cm in mcm:
+        tn, fp, fn, tp = cm.ravel()
+        rec = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        spec = tn / (tn + fp) if (tn + fp) > 0 else 0.0
+        npv = tn / (tn + fn) if (tn + fn) > 0 else 0.0
+        specs.append(spec)
+        npvs.append(npv)
+        gmeans.append(float(np.sqrt(rec * spec)))
+    metrics["specificity"] = float(np.mean(specs))
+    metrics["negative_predictive_value"] = float(np.mean(npvs))
+    metrics["gmean"] = float(np.mean(gmeans))
+    return metrics
+
+
+def _binary_probability_metrics(y_true: np.ndarray, y_score: np.ndarray) -> MetricsDict:
+    """Binary-only probability-based metrics.
+
+    ``auroc``/``auprc``/``optimal_threshold`` mirror the original binary
+    block (Youden's J argmax over the ROC curve); ``log_loss``/``brier_score``
+    are new additive keys. Each key degrades to ``None`` (and a warning is
+    logged) if the underlying sklearn call raises -- matching the original
+    try/except + warning pattern.
+
+    Args:
+        y_true: True 0/1 labels, shape ``(n_samples,)``.
+        y_score: Positive-class probability, shape ``(n_samples,)`` (the
+            ``(n, 2)`` matrix is reduced to its positive column before this
+            helper is called).
+
+    Returns:
+        Probability-based binary metrics; failing keys are ``None``.
+    """
+    metrics: MetricsDict = {}
+    try:
+        metrics["auroc"] = roc_auc_score(y_true, y_score)
+        metrics["auprc"] = average_precision_score(y_true, y_score)
+        fpr, tpr, thresholds = roc_curve(y_true, y_score)
+        metrics["optimal_threshold"] = thresholds[np.argmax(tpr - fpr)]
+    except (ValueError, IndexError) as exc:
+        logger.warning("Failed to calculate probability-based metrics: %s", exc)
+        metrics["auroc"] = None
+        metrics["auprc"] = None
+        metrics["optimal_threshold"] = None
+    try:
+        metrics["log_loss"] = log_loss(y_true, y_score, labels=[0, 1])
+    except (ValueError, IndexError) as exc:
+        logger.warning("Failed to calculate log_loss: %s", exc)
+        metrics["log_loss"] = None
+    try:
+        metrics["brier_score"] = brier_score_loss(y_true, y_score)
+    except (ValueError, IndexError) as exc:
+        logger.warning("Failed to calculate brier_score: %s", exc)
+        metrics["brier_score"] = None
+    return metrics
+
+
+def _multiclass_probability_metrics(
+    y_true: np.ndarray, y_score: np.ndarray, n_classes: int
+) -> MetricsDict:
+    """Multiclass probability-based metrics (OvR macro AUROC only).
+
+    ``auprc``/``optimal_threshold`` are binary-only concepts (a single
+    ROC/PR curve) and are deliberately omitted for multiclass rather than
+    forcing a meaningless single-curve reduction; ``log_loss``/``brier_score``
+    are likewise binary-only per this plan's scope.
+
+    Args:
+        y_true: True labels, shape ``(n_samples,)``.
+        y_score: Predicted probabilities, shape ``(n_samples, n_classes)``.
+        n_classes: Number of classes.
+
+    Returns:
+        ``auroc`` (macro one-vs-rest) if computable, else ``None``.
+    """
+    metrics: MetricsDict = {}
+    try:
+        if n_classes > 2:
+            metrics["auroc"] = roc_auc_score(y_true, y_score, multi_class="ovr", average="macro")
+        else:
+            metrics["auroc"] = roc_auc_score(y_true, y_score)
+    except (ValueError, IndexError) as exc:
+        logger.warning("Failed to calculate multiclass AUROC: %s", exc)
+        metrics["auroc"] = None
+    return metrics
+
+
 class TBLSEvaluator:
-    """Evaluator for binary classification with imbalanced-data support."""
+    """Evaluator for binary and multiclass classification with imbalance support.
+
+    ``calculate_metrics`` dispatches on ``len(np.unique(y_true))``: the binary
+    path keeps today's exact metric set and values (regression-tested), the
+    multiclass path uses macro/weighted averages and one-vs-rest
+    specificity/NPV/gmean. ``mcc`` and ``cohen_kappa`` are returned for both;
+    ``log_loss``/``brier_score`` are binary-only (when ``y_score`` is given).
+    """
 
     @staticmethod
     def calculate_metrics(
@@ -38,62 +208,44 @@ class TBLSEvaluator:
         y_pred: np.ndarray,
         y_score: np.ndarray | None = None,
         task: str = "classification",
-    ) -> dict[str, Any]:
-        """Calculate evaluation metrics for binary classification.
+    ) -> MetricsDict:
+        """Calculate evaluation metrics for binary or multiclass classification.
 
         Args:
-            y_true: True labels (0 or 1), shape ``(n_samples,)``.
-            y_pred: Predicted labels (0 or 1), shape ``(n_samples,)``.
-            y_score: Predicted probabilities, shape ``(n_samples,)`` or
-                ``(n_samples, 2)``.
-            task: Reserved (currently unused; always binary classification).
+            y_true: True labels, shape ``(n_samples,)``.
+            y_pred: Predicted labels, shape ``(n_samples,)``.
+            y_score: Predicted probabilities, shape ``(n_samples,)`` (binary
+                positive-class) or ``(n_samples, n_classes)``. When omitted,
+                probability-based keys are absent.
+            task: Reserved (currently unused; always classification).
 
         Returns:
-            Dictionary of metrics.
+            Dictionary of metrics; see :class:`MetricsDict` for the schema.
         """
         _ = task
-        metrics: dict[str, Any] = {}
-
-        # Ensure 1D.
         y_true = y_true.ravel()
         y_pred = y_pred.ravel()
+        n_classes = len(np.unique(y_true))
 
-        # Basic metrics.
-        tn, fp, fn, _ = confusion_matrix(y_true, y_pred).ravel()
-        metrics["accuracy"] = accuracy_score(y_true, y_pred)
-        metrics["precision"] = precision_score(y_true, y_pred, zero_division=0)
-        metrics["recall"] = recall_score(y_true, y_pred, zero_division=0)
-        metrics["f1_score"] = f1_score(y_true, y_pred, zero_division=0)
-        metrics["hamming_loss"] = hamming_loss(y_true, y_pred)
+        if n_classes == 2:
+            metrics = _binary_metrics(y_true, y_pred)
+        else:
+            metrics = _multiclass_metrics(y_true, y_pred)
 
-        # Specificity and NPV.
-        metrics["specificity"] = tn / (tn + fp) if (tn + fp) > 0 else 0
-        metrics["negative_predictive_value"] = tn / (tn + fn) if (tn + fn) > 0 else 0
-
-        # Imbalanced-data metrics.
-        metrics["balanced_accuracy"] = (metrics["recall"] + metrics["specificity"]) / 2
-        metrics["gmean"] = float(np.sqrt(metrics["recall"] * metrics["specificity"]))
-
-        # Probability-based metrics.
         if y_score is not None:
-            try:
-                # Use the positive-class probability for binary classification.
-                if y_score.ndim > 1 and y_score.shape[1] > 1:
-                    y_score = y_score[:, 1]
-                metrics["auroc"] = roc_auc_score(y_true, y_score)
-                metrics["auprc"] = average_precision_score(y_true, y_score)
-                fpr, tpr, thresholds = roc_curve(y_true, y_score)
-                metrics["optimal_threshold"] = thresholds[np.argmax(tpr - fpr)]
-            except (ValueError, IndexError) as exc:
-                logger.warning("Failed to calculate probability-based metrics: %s", exc)
-                metrics["auroc"] = None
-                metrics["auprc"] = None
-                metrics["optimal_threshold"] = None
-
+            y_score = np.asarray(y_score)
+            # For binary callers, reduce ``(n, 2)`` to the positive column
+            # (matches the original behaviour exactly).
+            if n_classes == 2 and y_score.ndim > 1 and y_score.shape[1] > 1:
+                y_score = y_score[:, 1]
+            if n_classes == 2:
+                metrics.update(_binary_probability_metrics(y_true, y_score))
+            else:
+                metrics.update(_multiclass_probability_metrics(y_true, y_score, n_classes))
         return metrics
 
     @staticmethod
-    def calculate_average_metrics(metrics_list: list[dict[str, Any]]) -> dict[str, Any]:
+    def calculate_average_metrics(metrics_list: list[MetricsDict]) -> dict[str, Any]:
         """Average metrics across multiple folds.
 
         Args:
