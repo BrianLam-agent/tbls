@@ -1,8 +1,7 @@
 # Ruff configuration for the `tbls` package + `experiments/` scripts + tests.
 #
-# Source layout note: `src/tbls/` does not exist yet until the refactor in
-# docs/design.md is executed; until then Ruff simply lints whatever paths
-# exist. Update `src` below if the directory layout changes.
+# Source layout: `src/tbls/` (the published package), `experiments/` (training
+# CLI, not published), `tests/` (pytest suite). See docs/architecture.md.
 src = ["src", "experiments", "tests"]
 
 exclude = [
@@ -46,7 +45,7 @@ select = [
     "F",     # pyflakes
     "I",     # isort (import sorting)
     "N",     # pep8-naming
-    "D",     # pydocstyle (Google-style docstrings, enforces design.md convention)
+    "D",     # pydocstyle (Google-style docstrings; see docs/development.md)
     "UP",    # pyupgrade (modern Python syntax)
     "B",     # flake8-bugbear (common bugs)
     "C4",    # flake8-comprehensions

@@ -3,8 +3,8 @@
 The :meth:`GeneticOptimizer.optimize` method is coupled to TBLS internals that
 do not exist on the current :class:`tbls.tbls.TBLS` API (``n_map_nodes``,
 ``tree_params``, ``X_original``). It is shipped for reuse of the standalone GA
-machinery but is **not** verified to run end-to-end. See ``docs/design.md``
-§15.3.
+machinery but is **not** verified to run end-to-end. See
+``docs/experimental-modules.md``.
 """
 
 from __future__ import annotations
@@ -72,7 +72,7 @@ class GeneticOptimizer:
             Coupled to TBLS internals (``n_map_nodes``, ``tree_params``,
             ``X_original``, ``y``) that do not exist on the current
             :class:`tbls.tbls.TBLS`. Not verified to run end-to-end; see
-            ``docs/design.md`` §15.3.
+            ``docs/experimental-modules.md``.
         """
         # Initialize population.
         encoder = ChromosomeEncoder(model.n_map_nodes)

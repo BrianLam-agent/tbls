@@ -26,7 +26,8 @@ class GraphFuzzyKCCA(BaseEstimator):  # type: ignore[misc]
     """Graph-embedded intuitionistic-fuzzy kernel CCA model.
 
     Two-view estimator (like :class:`tbls.cca.PairwiseKCCA`); does not inherit
-    ``TransformerMixin`` for the same reason (see ``docs/design.md`` §15.2).
+    ``TransformerMixin`` for the same reason (see ``docs/architecture.md`` and
+    ``docs/usage-cca-gfcca.md``).
 
     Args:
         k: Number of canonical variable pairs to keep.

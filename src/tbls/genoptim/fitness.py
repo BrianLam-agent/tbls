@@ -4,7 +4,7 @@ This module's TBLS-coupled function (:meth:`MultiObjectiveFitness.calculate`)
 references attributes that do not exist on the current :class:`tbls.tbls.TBLS`
 API (``predict(trees=...)``, ``mapping_trees``, ``tree.selected_features``). It
 is shipped for reuse of the standalone GA machinery but is **not** verified to
-run end-to-end against ``TBLS``. See ``docs/design.md`` §15.3.
+run end-to-end against ``TBLS``. See ``docs/experimental-modules.md``.
 """
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ class MultiObjectiveFitness:
             Coupled to TBLS internals (``predict(trees=...)``, ``mapping_trees``,
             ``tree.selected_features``) that do not exist on the current
             :class:`tbls.tbls.TBLS`. Not verified to run end-to-end; see
-            ``docs/design.md`` §15.3.
+            ``docs/experimental-modules.md``.
         """
         # 1. Classification performance (weighted F1 + AUC).
         y_pred = model.predict(self.X_val, trees=selected_trees)  # type: ignore[call-arg]

@@ -1,4 +1,4 @@
-# Default TBLS training config (see docs/design.md §10).
+# Default TBLS training config (see docs/usage-experiments-cli.md).
 # Values mirror the legacy main.py::parse_arguments() defaults.
 dataset: biomedical_larger
 data_path: experiments/datasets/

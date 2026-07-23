@@ -1,27 +1,30 @@
+English | [简体中文](./README.zh-CN.md)
+
 # tbls
 
-Tree-based Broad Learning System (TBLS) for classification, with a sklearn-compatible API.
+[![CI](https://github.com/BrianLam-agent/tbls/actions/workflows/ci.yml/badge.svg)](https://github.com/BrianLam-agent/tbls/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/tbls.svg)](https://pypi.org/project/tbls/)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
+[![Python](https://img.shields.io/pypi/pyversions/tbls.svg)](https://pypi.org/project/tbls/)
 
-This package refactors the research implementation into an installable Python
-package. The core estimators (`TBLS`, `BroadLearningSystem`) and feature
-extractors (`PairwiseKCCA`, `GraphFuzzyKCCA`) are sklearn-compatible
-estimators usable with `cross_val_score`, `GridSearchCV`, etc.
+Tree-based Broad Learning System (TBLS) for classification, with a fully
+scikit-learn-compatible API.
+
+`tbls` packages a Tree-based Broad Learning System classifier (`TBLS`) built
+from small regression trees arranged in the Broad Learning System's
+two-stage "mapping → enhancement" architecture, trained with a closed-form
+ridge solve, plus the building blocks it is composed from: a classic
+random-weight `BroadLearningSystem`, and two-view kernel CCA feature
+extractors (`PairwiseKCCA`, `GraphFuzzyKCCA`) with optional Intuitionistic
+Fuzzy Set sample weighting and graph-Laplacian regularization.
 
 ## Installation
 
-The package is not yet on PyPI. For local development:
-
 ```bash
-uv pip install -e .
+pip install tbls
 ```
 
-or, with the full experiment tooling:
-
-```bash
-uv sync --group dev --group experiments
-```
-
-The published package depends only on `numpy`, `scipy` and `scikit-learn`.
+The published package depends only on `numpy`, `scipy`, and `scikit-learn`.
 
 ## Quickstart
 
@@ -41,22 +44,33 @@ print(model.predict_proba(X[:5]))
 print(cross_val_score(model, X, y, cv=3))
 ```
 
-## Features
+## What's in the box
 
-- `tbls.TBLS` — tree-based BLS with optional Intuitionistic Fuzzy Set (IFS)
-  sample weighting and graph-Laplacian regularization.
-- `tbls.BroadLearningSystem` — classic random-weight Broad Learning System.
-- `tbls.PairwiseKCCA` / `tbls.GraphFuzzyKCCA` — two-view kernel CCA feature
-  extractors (note: two-view API, not sklearn `Pipeline`-compatible; see
-  `docs/design.md` §15.2).
+| Component | What it is |
+|---|---|
+| `tbls.TBLS` | Tree-based Broad Learning System classifier, with optional IFS sample weighting and graph-Laplacian regularization. |
+| `tbls.BroadLearningSystem` | Classic random-weight Broad Learning System with true incremental-enhancement learning. |
+| `tbls.PairwiseKCCA` | Two-view regularized kernel CCA feature extractor. |
+| `tbls.GraphFuzzyKCCA` | Two-view kernel CCA with IFS sample credibility and discriminative graph-embedding regularization. |
+| `tbls.genoptim` *(experimental)* | Genetic-algorithm tree selection — encoding/operators are functional, `TBLS`-coupled fitness/optimizer are not (see docs). |
+| `tbls.ensemble` *(experimental)* | Tree-diversity metrics and a generic fitness-based tree/subset selector — fully functional. |
 
-### Experimental subpackages
+All classifiers (`TBLS`, `BroadLearningSystem`) are standard
+`sklearn.base.BaseEstimator`/`ClassifierMixin` implementations and work with
+`cross_val_score`, `GridSearchCV`, `Pipeline`, etc.
 
-`tbls.genoptim` and `tbls.ensemble` are **experimental**. Their public API may
-change without notice between minor versions. In particular, `tbls.genoptim`'s
-`fitness.py` / `ga_optimizer.py` are coupled to TBLS internals that do not
-exist on the current `TBLS` API and are therefore not verified to run
-end-to-end; see `docs/design.md` §15.3.
+## Documentation
+
+| Doc | What's in it |
+|---|---|
+| [`docs/architecture.md`](docs/architecture.md) | Repository structure, why the package/experiments split exists, shared-module design, the estimator contract. |
+| [`docs/usage-tbls.md`](docs/usage-tbls.md) | `TBLS` tutorial: parameters, IFS/graph regularization, incremental layers, reproducibility, performance notes. |
+| [`docs/usage-bls.md`](docs/usage-bls.md) | `BroadLearningSystem` tutorial: parameters, class imbalance, Woodbury incremental enhancement. |
+| [`docs/usage-cca-gfcca.md`](docs/usage-cca-gfcca.md) | `PairwiseKCCA`/`GraphFuzzyKCCA` tutorial: two-view API, multi-view pipelines, why there's no `Pipeline` support. |
+| [`docs/usage-experiments-cli.md`](docs/usage-experiments-cli.md) | Running the `experiments/` training CLI and smoke-check script against real datasets. |
+| [`docs/experimental-modules.md`](docs/experimental-modules.md) | What works and what doesn't in `tbls.genoptim`/`tbls.ensemble`, and why. |
+| [`docs/development.md`](docs/development.md) | Local dev setup, conventions, how to add a new estimator, docs/translation structure. |
+| [`docs/release-process.md`](docs/release-process.md) | Semantic versioning, changelog generation, the tag-triggered CI/CD release pipeline, PyPI publishing. |
 
 ## Development
 
@@ -65,8 +79,16 @@ uv sync --group dev --group experiments   # install everything
 ruff check .                              # lint
 ruff format --check .                     # format check
 mypy src/tbls                             # type check
-pytest                                    # tests
+pytest                                     # tests
 ```
+
+See [`docs/development.md`](docs/development.md) for the full guide.
+
+## Contributing
+
+Issues and pull requests are welcome. Please read
+[`docs/development.md`](docs/development.md) first for project conventions
+(Conventional Commits, the estimator contract, docs/translation structure).
 
 ## References
 
@@ -76,4 +98,4 @@ System architecture follows the original BLS literature.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+Apache License 2.0 — see [LICENSE](LICENSE).

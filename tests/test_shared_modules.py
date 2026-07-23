@@ -1,9 +1,10 @@
 """Direct unit tests for the shared `_kernel`/`_ifs`/`_graph` modules.
 
-These modules were extracted from `othercode/tbls.py`/`cca.py`/`gfcca.py`
-during the package refactor (docs/design.md §6). They previously had no direct
-test coverage of their own -- only indirect coverage through `TBLS.fit`, which
-only checks output finiteness/shape, not numerical fidelity to the original
+These modules were originally three separate, duplicated implementations
+inside what is now `tbls.py`/`cca.py`/`gfcca.py` (see `docs/architecture.md`
+for the consolidation rationale). They previously had no direct test coverage
+of their own -- only indirect coverage through `TBLS.fit`, which only checks
+output finiteness/shape, not numerical fidelity to the original
 (canonical, paper-faithful) implementation. That gap let a bandwidth-computation
 regression slip into `_graph.build_graph_laplacian` (the kNN-bandwidth median
 was computed over the selected edges instead of over all pairwise distances,

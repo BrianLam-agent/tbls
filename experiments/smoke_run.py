@@ -4,8 +4,9 @@ Loads one real sub-dataset from ``experiments/datasets/biomedical_larger.pkl``,
 fits a small :class:`tbls.TBLS` on a train/test split, and asserts the
 predictions are finite, non-degenerate, and that ``predict_proba`` rows sum to 1.
 
-This is the user's actual acceptance bar ("run the refactored package against
-the real dataset"); see ``docs/design.md`` §9.3. The loader is intentionally
+This is the primary local acceptance check for this package: fitting and
+predicting against real data on your own machine, not just synthetic data in
+CI; see ``docs/usage-experiments-cli.md``. The loader is intentionally
 defensive: the real pkl stores feature matrices with ``dtype=object`` and a
 multi-key dict of sub-datasets.
 """

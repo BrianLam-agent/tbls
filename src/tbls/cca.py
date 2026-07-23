@@ -31,7 +31,7 @@ class PairwiseKCCA(BaseEstimator):  # type: ignore[misc]
     The no-argument :meth:`transform` returns the training projections of both
     views. It deliberately does **not** inherit ``TransformerMixin`` because the
     two-view API does not match sklearn's single-argument ``transform(X)``
-    contract (see ``docs/design.md`` §15.2).
+    contract (see ``docs/architecture.md`` and ``docs/usage-cca-gfcca.md``).
 
     Args:
         k: Number of canonical variable pairs to keep.

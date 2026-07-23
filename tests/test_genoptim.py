@@ -2,7 +2,7 @@
 
 Only the TBLS-independent pieces (encoding, operators) are unit-tested. The
 TBLS-coupled ``MultiObjectiveFitness.calculate`` / ``GeneticOptimizer.optimize``
-are intentionally NOT tested end-to-end (see docs/design.md 15.3).
+are intentionally NOT tested end-to-end (see docs/experimental-modules.md).
 """
 
 from __future__ import annotations
