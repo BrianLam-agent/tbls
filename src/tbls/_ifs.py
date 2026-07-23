@@ -128,14 +128,19 @@ def compute_if_scores_simple(
 ) -> NDArray[np.float64]:
     """Simplified IFS scores as a weight vector.
 
-    Used by :class:`tbls.gfcca.GraphFuzzyKCCA`. ``delta_if`` is a *relative*
-    distance threshold (multiplied by the median pairwise Euclidean distance) so
-    it does not depend on the data dimensionality.
+    Used by :class:`tbls.gfcca.GraphFuzzyKCCA`. Both ``sigma_if`` and
+    ``delta_if`` are *relative* to the data's median pairwise Euclidean distance
+    (multiplied by it) so neither depends on the absolute feature scale or
+    dimensionality -- ``sigma_if`` is the Gaussian width for the membership
+    term, ``delta_if`` is the neighborhood threshold.
 
     Args:
         A: Sample matrix of shape ``(n, d)``.
         y: Integer class labels of shape ``(n,)``.
-        sigma_if: Gaussian width for the membership computation.
+        sigma_if: Relative Gaussian width for the membership computation.
+            Interpreted as ``sigma_if * median_pairwise_distance`` (an absolute
+            distance unit here would numerically underflow ``mu`` to zero on
+            any real, non-toy-scale dataset). Matches ``delta_if``'s relativity.
         delta_if: Relative distance threshold for the neighborhood.
         min_weight: Minimum clipping value; prevents zero weights that would
             make the regularized matrix singular.
@@ -150,17 +155,25 @@ def compute_if_scores_simple(
         idx_c = y == c
         centers[c] = A[idx_c].mean(axis=0)
 
+    # Relative distance scale (shared by both the membership term and the
+    # neighborhood threshold below) -- computed once, up front.
+    dists = cdist(A, A, "euclidean")
+    off_diag = dists[~np.eye(n, dtype=bool)]
+    median_dist = np.median(off_diag) if off_diag.size > 0 else 1.0
+
+    # Membership: Gaussian in units of the data's own median pairwise distance,
+    # matching ``delta_if`` below (and ``compute_if_scores_geib``'s
+    # ``sigma = if_sigma * median_dist``) -- NOT an absolute distance unit (an
+    # absolute ``sigma_if`` underflows ``mu`` to numerical zero on any real,
+    # non-toy-scale dataset, which collapses the IFS weights to ``min_weight``).
+    sigma_eff = sigma_if * median_dist
     mu = np.zeros(n, dtype=np.float64)
     for i in range(n):
         ci = y[i]
         dist = np.linalg.norm(A[i] - centers[ci])
-        mu[i] = np.exp(-(dist**2) / (2 * sigma_if**2))
+        mu[i] = np.exp(-(dist**2) / (2 * sigma_eff**2))
     mu = np.clip(mu, 0.0, 1.0)
 
-    # Relative distance threshold: median distance * delta_if
-    dists = cdist(A, A, "euclidean")
-    off_diag = dists[~np.eye(n, dtype=bool)]
-    median_dist = np.median(off_diag) if off_diag.size > 0 else 1.0
     threshold = median_dist * delta_if
 
     # Vectorized neighbor-mismatch rate: rho[i] = mean(y[neighbors] != y[i])

@@ -370,12 +370,16 @@ def test_compute_if_scores_geib_vectorized_matches_loop() -> None:
 
 
 def test_compute_if_scores_simple_vectorized_matches_loop() -> None:
-    """Bit-for-bit regression: vectorized simple IFS == old loop-based simple IFS.
+    """Bit-for-bit regression: vectorized simple IFS == loop-based simple IFS.
 
-    Reimplements ``compute_if_scores_simple`` with the pre-vectorization
+    Reimplements ``compute_if_scores_simple`` with the same relative-bandwidth
+    membership formula now used by the vectorized implementation
+    (``sigma_eff = sigma_if * median_dist``) and the pre-vectorization
     ``rho[i] = np.mean(y[neigh] != y[i])`` neighbor loop (strict-``<``
-    threshold, self excluded) and asserts the current vectorized version
-    matches it to ``atol=1e-12``.
+    threshold, self excluded), then asserts the current vectorized version
+    matches it to ``atol=1e-12``. Both sides of the comparison apply the
+    Plan-07 bandwidth relativization fix; without that, this test would
+    merely assert two different-but-still-buggy implementations agree.
     """
     rng = np.random.RandomState(24)
     n = 22
@@ -391,17 +395,20 @@ def test_compute_if_scores_simple_vectorized_matches_loop() -> None:
         idx_c = y == c
         centers[c] = a[idx_c].mean(axis=0)
 
+    # Relative distance scale shared by membership + neighborhood threshold
+    # (matches the Plan-07 fix in compute_if_scores_simple).
+    dists = cdist(a, a, "euclidean")
+    off_diag = dists[~np.eye(n, dtype=bool)]
+    median_dist = np.median(off_diag) if off_diag.size > 0 else 1.0
+    sigma_eff = sigma_if * median_dist
+    threshold = median_dist * delta_if
+
     mu = np.zeros(n, dtype=np.float64)
     for i in range(n):
         ci = y[i]
         dist = np.linalg.norm(a[i] - centers[ci])
-        mu[i] = np.exp(-(dist**2) / (2 * sigma_if**2))
+        mu[i] = np.exp(-(dist**2) / (2 * sigma_eff**2))
     mu = np.clip(mu, 0.0, 1.0)
-
-    dists = cdist(a, a, "euclidean")
-    off_diag = dists[~np.eye(n, dtype=bool)]
-    median_dist = np.median(off_diag) if off_diag.size > 0 else 1.0
-    threshold = median_dist * delta_if
 
     # OLD loop-based neighbor-mismatch rate.
     rho = np.zeros(n, dtype=np.float64)
