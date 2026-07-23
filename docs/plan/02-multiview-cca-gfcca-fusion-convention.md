@@ -1,193 +1,82 @@
-# Plan 02: Multi-view CCA/GFCCA fusion convention (no real multi-view data yet)
+# Plan 02: Multi-view CCA/GFCCA fusion pipeline wiring
 
-> Status: draft, not yet handed off. **Hard dependency: Plan 01 must be
-> `ACCEPTED` first** — this plan builds directly on `experiments/train.py`'s
-> `_build_model`/`_cross_validate`/`_run_grid` and `experiments/hyperparams.py`
-> as landed by Plan 01; do not start implementation until that lands on
-> `master`.
+> Status: **final, ready to hand off**. **Hard dependency: Plan 01 must be
+> `ACCEPTED` first** (it is, as of commit `8effeaf`) — this plan builds on
+> `experiments/train.py`'s `_build_model`/`_cross_validate`/`_run_grid` and
+> `experiments/hyperparams.py` as landed by Plan 01.
+>
+> **The data contract and configuration schema are already finalized and
+> documented in [`docs/usage-multiview-fusion.md`](../usage-multiview-fusion.md)
+> and [`experiments/datasets/README.md`](../../experiments/datasets/README.md).
+> Implement exactly what those documents specify — do not redesign the
+> contract while implementing this plan.** If something in those documents
+> is ambiguous or turns out to be impractical while implementing, stop and
+> ask; do not silently deviate.
 
 ## Goal
 
-Establish (not "validate against real data" — there is none yet) a clean,
-documented **data contract and code path** for multi-view feature fusion
-(`tbls.PairwiseKCCA` / `tbls.GraphFuzzyKCCA`) inside the `experiments/`
-training pipeline, so that when a genuine multi-view dataset arrives (the
-user mentioned fundus-image modality fusion as the likely future case), it
-only needs to be exported in the documented pkl shape — no pipeline code
-changes required. Validate the wiring end-to-end with a **synthetic**
-2-view dataset (clearly labeled as such), not real project data.
+Implement the multi-view loading, per-view preprocessing, fusion-group
+dispatch, and CLI wiring described in `docs/usage-multiview-fusion.md`,
+validated with a synthetic 2-view fixture (there is no real multi-view
+dataset yet — see that document's Section 6).
 
 ## Why (context)
 
-Investigated both real datasets currently in `experiments/datasets/`
-(`biomedical_larger.pkl`: `DM`/`CKD`/`BC`/`CG`, each a single flat
-`(n, 204)` matrix; `data_cross_train.pkl`: 32 keys, all single flat
-matrices — mostly standard `imbalanced-learn` benchmark datasets) and the
-original pre-refactor `BLS/` tree the user provided: **no multi-view
-structure exists anywhere, in the data or in any historical code path.**
-`othercode/classifiers.py`'s `X_views`-consuming comparison classifiers
-(MOFA/DIABLO/MOGONET/SNF) always assumed the caller already had `X_views`
-from somewhere; nothing in this repo's history ever produced them from these
-pkl files. So there is nothing to "wire up to real data" right now — the
-actionable work is defining the convention and proving the plumbing, and
-deferring real-data ingestion to whenever it exists (at which point it
-should be a small loader addition, not a redesign).
-
-CCA/GFCCA's role in the pipeline (for anyone reading this plan without the
-chat context): given aligned per-sample feature matrices from two (or more)
-modalities/views of the *same* samples, they project each view into a
-shared, correlation-maximizing (CCA) or additionally label-supervised +
-noise-robust (GFCCA: adds a discriminative graph-embedding term and
-Intuitionistic Fuzzy Set sample-credibility weighting) space; the
-concatenated projections become the fused feature matrix fed into
-`TBLS`/`BroadLearningSystem` exactly like a normal `X` today.
+See `docs/usage-multiview-fusion.md` Section 1 for what CCA/GFCCA fusion is
+and why it's needed; this plan is the *pipeline wiring*, not new fusion math
+— `tbls.cca.build_cca_features`/`tbls.gfcca.build_gfcca_features` already
+exist, are unit-tested, and must not be modified by this plan.
 
 ## Design references
 
+- **[`docs/usage-multiview-fusion.md`](../usage-multiview-fusion.md) — the
+  authoritative spec for everything in this plan**: pkl contract (dict of
+  named views, not a list), preprocessing order, resampling restrictions,
+  fusion groups, config schema. Read it in full before writing any code.
 - [`docs/usage-cca-gfcca.md`](../usage-cca-gfcca.md) — the estimator-level
-  API this plan wires into a training pipeline.
+  API (`PairwiseKCCA`, `GraphFuzzyKCCA`, `build_cca_features`,
+  `build_gfcca_features`, `project_cca_features`) this plan wires into a
+  training pipeline; do not modify these functions.
 - [`docs/architecture.md`](../architecture.md) section 3 (package/experiments
-  split) — the new multi-view loader is `experiments/`-only, same rationale.
-- [`docs/usage-experiments-cli.md`](../usage-experiments-cli.md) — gets a new
-  section; also linked from a new `docs/usage-multiview-fusion.md`.
+  split) — the new multi-view loader is `experiments/`-only, same rationale
+  as `experiments/dataprocess.py`.
 - `docs/plan/01-tbls-graph-ifs-strategy-and-grid-search.md` — the
-  `_build_model`/`_cross_validate`/`hyperparams.py` shapes this plan extends.
-
-## Upstream dependencies
-
-- **Plan 01** (`01-tbls-graph-ifs-strategy-and-grid-search.md`) must be
-  `ACCEPTED`. This plan's `experiments/train.py` changes are additive on top
-  of Plan 01's `_build_model`/`_cross_validate`/`_run_grid`/`hyperparams.py`
-  — re-read those functions as actually landed (not just as drafted in Plan
-  01) before starting, in case the accepted version differs from the draft.
-
-## Deliverables for downstream work
-
-- A documented pkl contract (below) any future multi-view dataset export
-  must follow.
-- `experiments/multiview.py`: the only file a follow-up plan needs to touch
-  to point at real data (e.g., swap the synthetic-view generator referenced
-  in tests for a real loader, once real data exists) — core wiring in
-  `train.py` should not need further changes.
-- `CCA_DEFAULTS`/`CCA_GRID`/`GFCCA_DEFAULTS`/`GFCCA_GRID` in
-  `experiments/hyperparams.py`, seeded with the user's already-tuned point
-  values.
-
-## Current evidence and assumptions
-
-- `experiments/dataprocess.py::DataLoader.preprocess(X_train, y_train,
-  X_test)` is single-view only (one `StandardScaler`, one feature selector,
-  one resampler). It is **not modified by this plan** — multi-view gets its
-  own loader (`experiments/multiview.py::MultiViewDataLoader`), kept
-  separate to avoid any regression risk to the already-accepted single-view
-  path.
-- `experiments/train.py::_load_subsets` (as landed by Plan 01) returns
-  `dict[str, tuple[np.ndarray, np.ndarray]]` keyed by pkl sub-dataset key,
-  requiring `sub["data"]`/`sub["target"]`. This plan adds a parallel
-  multi-view-aware variant; see Step 3.
-- `tbls.cca.build_cca_features`/`project_cca_features` and
-  `tbls.gfcca.build_gfcca_features`/`project_cca_features` already exist and
-  are unit-tested at the estimator level (`tests/test_cca.py`,
-  `tests/test_gfcca.py`). **Do not re-implement fusion math** — this plan is
-  pipeline wiring only.
-- `tbls.gfcca.project_cca_features` and `tbls.cca.project_cca_features` are
-  two *different* functions with the *same name* (see
-  `docs/usage-cca-gfcca.md`) — the multi-view loader must call whichever one
-  matches the models dict it holds (`cca_models` → `tbls.cca`,
-  `gfcca_models` → `tbls.gfcca`), never mix them up.
-- `experiments/hyperparams.py` (as landed by Plan 01) already has the
-  user's `CCA_K`/`CCA_LAMBDA`/`KERNEL_GAMMA`/`GFCCA_GRAPH_GAMMA`/
-  `DISCRIMINATIVE_BETA`/`GFCCA_SIGMA_IF`/`GFCCA_DELTA_IF` values as
-  **commented-out** reference constants, plus a note that `GFCCA_SIGMA_GRAPH`
-  is dead (the user's own words: "此参数已无用") — do not activate that one.
+  `_build_model`/`_cross_validate`/`_run_grid`/`hyperparams.py` shapes this
+  plan extends; re-read the *landed* code (commit `8effeaf`), not the plan
+  draft, since implementation details may have settled slightly differently.
 
 ## Non-goals
 
-- Ingesting any real multi-view dataset (fundus images or otherwise) — none
-  exists in this repo yet. When it does, that's a follow-up plan (likely
-  small: a loader adapter into the contract this plan defines).
-- Image feature extraction (e.g. a CNN backbone producing per-modality
-  feature vectors from raw fundus images) — out of scope; this plan assumes
-  per-view feature vectors already exist, however they were produced.
-- Changing `DataLoader`/single-view behavior in any way.
-- SMOTE-family resampling for multi-view data (see Decision 2 below — this
-  is an explicit, permanent restriction, not a deferred TODO).
-- More than two views in the *test* coverage (the fusion library functions
-  already support N views generically via all-pairs concatenation; this plan
-  only needs to prove 2 views work, not add N-view-specific test matrices).
+- Ingesting any real multi-view dataset — none exists. When one is exported
+  in the `docs/usage-multiview-fusion.md` format, that's a follow-up task
+  (should be small: point a config at the new `.pkl`), not a new plan.
+- Reading raw images or any other raw modality into feature vectors —
+  explicitly out of scope everywhere in this project (see that document's
+  header note).
+- Changing `experiments/dataprocess.py::DataLoader` or its single-view
+  behavior in any way. Single-view cohorts must be provably unaffected.
+- Changing `tbls.cca`/`tbls.gfcca` fusion math, `PairwiseKCCA`, or
+  `GraphFuzzyKCCA` in any way.
+- Sweeping fusion hyperparameters via `--grid` in the same pass as model
+  hyperparameters — see Step 4's narrower scope note; call out explicitly if
+  taken, rather than silently shipping a partial grid.
 
-## Decisions (must be implemented exactly as below, not improvised)
+## Upstream dependencies
 
-### Decision 1: multi-view pkl contract
+Plan 01, `ACCEPTED` (commit `8effeaf` on `master`).
 
-```python
-{
-    cohort_key: {
-        "views": [X1, X2, ...],  # list of aligned (n_samples, n_features_i) arrays;
-                                  # same n_samples across all views for this key,
-                                  # row i in every view is the same underlying sample
-        "target": y,             # (n_samples,)
-    },
-    ...
-}
-```
+## Deliverables
 
-A cohort dict is multi-view if it has a `"views"` key (a list/tuple of
-arrays); it is single-view (existing, untouched behavior) if it has a
-`"data"` key. A single pkl file may mix single-view and multi-view cohort
-keys — each key is handled independently based on which key it has. Exactly
-one of `"views"`/`"data"` must be present per cohort key; a cohort dict
-having neither (or both) is a hard error.
-
-### Decision 2: resampling restrictions for multi-view data
-
-SMOTE-family resamplers (`smote`, `adasyn`, `border_smote`, `smote_tomek`,
-`smote_enn`) **synthesize new feature vectors by interpolation** — there is
-no way to synthesize a "new sample" consistently across two different
-feature spaces without inventing an interpolation scheme the library
-doesn't expose. They are therefore **not supported for multi-view data**;
-requesting one raises `ValueError` naming the unsupported resampler and
-pointing at `docs/usage-multiview-fusion.md`.
-
-Two categories are supported:
-
-- **Index-only** (`undersample` → `RandomUnderSampler`, and a new
-  `oversample` → `RandomOverSampler`, added to the multi-view loader's
-  resampler map since it doesn't yet exist as a `DataLoader.RESAMPLERS`
-  entry either): these select/duplicate whole existing rows based only on
-  class counts, never touching feature values. Implemented by resampling a
-  dummy `np.arange(n).reshape(-1, 1)` "X" against `y`, then applying the
-  returned index array to every view and to `y`.
-- **Reference-view** (`tomek` → `TomekLinks`): removes majority-class
-  samples that form a Tomek link in *some* feature space — ambiguous across
-  views, so a `preprocess.fusion_reference_view: int` config key (default
-  `0`) selects which view's feature space `TomekLinks` computes links
-  against; the resulting kept/removed row mask is then applied identically
-  to every view and to `y`.
-
-### Decision 3: fusion only activates when data actually has multiple views
-
-`fusion.method` (`"cca"` | `"gfcca"` | omitted) in the YAML config only
-takes effect for cohort keys loaded via the `"views"` branch. Single-view
-cohort keys (all current real data) are completely unaffected by this
-plan — no new config key changes their behavior. If a multi-view cohort is
-loaded and `fusion.method` is omitted, default to `"gfcca"` (the tuned,
-recommended default per the user's request), not `"none"` — the pipeline
-should do *something* sensible without requiring the config to spell out
-`fusion.method: gfcca` every time it's the desired default.
-
-## Data model and storage changes
-
-None beyond the pkl contract in Decision 1 (documentation only — this plan
-does not create any real multi-view pkl file in the repo; see Non-goals).
-
-## Retrieval and tool contract changes
-
-Not applicable.
-
-## Workflow / prompt / agent changes
-
-Not applicable.
+- `experiments/multiview.py` (new): the only file a future "point at real
+  data" follow-up should need to touch.
+- `experiments/hyperparams.py`: `CCA_DEFAULTS`/`CCA_GRID`/
+  `GFCCA_DEFAULTS`/`GFCCA_GRID`, replacing the currently-commented block.
+- `experiments/train.py`: multi-view branch (auto-detected per cohort key
+  from the pkl shape — see contract), `--fusion` CLI override.
+- `tests/test_multiview.py` (new).
+- Already done (do not redo): `docs/usage-multiview-fusion.md`,
+  `experiments/datasets/README.md`'s multi-view section, `README.md`'s doc
+  index entry.
 
 ## Implementation steps
 
@@ -197,26 +86,25 @@ Replace the commented block with:
 
 ```python
 CCA_DEFAULTS: dict = {
-    "k": 15,
-    "reg_lambda": 0.1,
+    "cca_k": 15,
+    "cca_lambda": 0.1,
     "kernel_gamma": 1.0,
 }
 CCA_GRID: dict = {
-    "k": [7, 15, 25],
-    "reg_lambda": [0.01, 0.1, 1.0],
+    "cca_k": [7, 15, 25],
+    "cca_lambda": [0.01, 0.1, 1.0],
 }
 
 GFCCA_DEFAULTS: dict = {
-    "k": 15,
-    "reg_lambda": 0.1,
+    "cca_k": 15,
+    "cca_lambda": 0.1,
     "kernel_gamma": 1.0,
     "graph_gamma": 0.5,
     "discriminative_beta": 0.3,
     "sigma_if": 1.0,
     "delta_if": 0.5,
-    # GFCCA_SIGMA_GRAPH from the original constant block is a documented dead
-    # parameter (superseded by the discriminative graph; not a GraphFuzzyKCCA
-    # constructor argument) -- intentionally not included here.
+    # sigma_graph is a documented-dead GraphFuzzyKCCA parameter (reserved,
+    # unused) -- intentionally not included here.
 }
 GFCCA_GRID: dict = {
     "graph_gamma": [0.1, 0.5, 1.0],
@@ -224,125 +112,138 @@ GFCCA_GRID: dict = {
 }
 ```
 
-Same "starting example, tune here directly" docstring caveat as the
-existing `BLS_GRID`/`TBLS_GRID`.
+Keyword names must match `build_cca_features`/`build_gfcca_features`'s actual
+parameter names exactly (`cca_k`, `cca_lambda`, `kernel_gamma`, `graph_gamma`,
+`discriminative_beta`, `sigma_if`, `delta_if` — verify against the current
+`src/tbls/cca.py`/`src/tbls/gfcca.py` signatures, not this plan text, in case
+they've since changed) since Step 2 passes these dicts as `**kwargs` directly.
+Same "starting example, tune here directly" docstring caveat as the existing
+`BLS_GRID`/`TBLS_GRID`.
 
-### Step 2 — `experiments/multiview.py` (new): loader + fusion wiring
+### Step 2 — `experiments/multiview.py` (new)
 
 ```python
 """Multi-view data loading and CCA/GFCCA feature fusion for experiments/.
 
-See docs/usage-multiview-fusion.md for the pkl contract, the resampling
-restrictions, and why this is kept separate from dataprocess.py::DataLoader.
+See docs/usage-multiview-fusion.md for the pkl contract, fusion-group
+config, and resampling restrictions this module implements. Do not change
+the contract here without updating that document first.
 """
 ```
 
-Contents:
-
-- `MultiViewDataLoader` class: constructor mirrors `DataLoader`'s
-  `(feature_selection, resampling)` args plus `fusion_reference_view: int = 0`.
-  - `preprocess_views(X_views_train, y_train, X_views_test=None) ->
-    (X_views_train_processed, y_train_processed, X_views_test_processed)`:
-    per-view `StandardScaler` + `feature_selection` (reuse
-    `DataLoader.FEATURE_SELECTORS`, applied independently per view — import
-    the dict from `dataprocess`, don't duplicate it), then resampling per
-    Decision 2 (raise `ValueError` for any SMOTE-family key).
-- `fuse_views(X_views_train, y_train, X_views_test, method, **fusion_kwargs)
-  -> (F_train, F_test)`: `method == "cca"` → `tbls.cca.build_cca_features` +
-  `tbls.cca.project_cca_features`; `method == "gfcca"` →
-  `tbls.gfcca.build_gfcca_features` (needs `y_train`) +
-  `tbls.gfcca.project_cca_features`. Raise `ValueError` for any other
-  `method` string.
-- `load_multiview_subsets(pkl_path) -> dict[str, tuple[list[np.ndarray], np.ndarray]]`:
-  same shape/validity filtering as `train.py::_load_subsets` (drop label
-  `-1`, binarize, `nan_to_num`) but for cohort keys with a `"views"` list;
-  raise on a cohort key with neither `"views"` nor `"data"`, or with both.
+- `load_multiview_cohort(pkl_path, cohort_key) -> tuple[dict[str, np.ndarray], np.ndarray]`:
+  loads one cohort's `{"views": {name: X, ...}, "target": y}`, applying the
+  same label filtering (`target != -1`, binarize, `nan_to_num`) as
+  `experiments/train.py::_load_subsets`. Raise a clear `ValueError` if a
+  cohort dict has both/neither of `"data"`/`"views"`.
+- `MultiViewDataLoader(feature_selection=None, resampling=None, fusion_reference_view=None)`:
+  - `preprocess_views(X_views_train: dict[str, np.ndarray], y_train, X_views_test: dict[str, np.ndarray] | None) -> tuple[dict, np.ndarray, dict | None]`:
+    per-view `StandardScaler` + `feature_selection` (import
+    `DataLoader.FEATURE_SELECTORS` from `dataprocess`, do not duplicate it),
+    each view getting its own fitted scaler/selector instance, keyed by view
+    name so train/test use matching instances.
+  - Resampling per `docs/usage-multiview-fusion.md` Section 3:
+    - SMOTE-family (`smote`, `adasyn`, `border_smote`, `smote_tomek`,
+      `smote_enn`) → `ValueError` naming the resampler and pointing at
+      `docs/usage-multiview-fusion.md`.
+    - `oversample`/`undersample` → resample a dummy
+      `np.arange(n).reshape(-1, 1)` "X" against `y`, apply the returned row
+      indices to every view (by name) and to `y`. Add `RandomOverSampler` as
+      `"oversample"` here (it is not currently a `DataLoader.RESAMPLERS` key
+      either — do not add it to `DataLoader` itself, only here).
+    - `tomek` → run `TomekLinks` against the view named by
+      `fusion_reference_view` (required, config error if unset when
+      `resampling == "tomek"` and there is more than one view), apply the
+      resulting keep-mask to every view and to `y`.
+- `fuse_views(X_views: dict[str, np.ndarray], y: np.ndarray | None, X_views_test: dict[str, np.ndarray] | None, method: str, view_groups: list[list[str]] | None, **fusion_kwargs) -> tuple[np.ndarray, np.ndarray | None]`:
+  - Validate `view_groups` is a partition of `X_views.keys()` (every key in
+    exactly one group); default to `[[*sorted(X_views.keys())]]` if `None`.
+  - For each group: if `len(group) == 1`, passthrough (that view's own
+    columns, train and test, unchanged — no CCA/GFCCA call). If
+    `len(group) >= 2`, call `build_cca_features`/`build_gfcca_features` (per
+    `method`) on `[X_views[name] for name in group]`, then
+    `project_cca_features` (the one matching `method` — `tbls.cca`'s for
+    `"cca"`, `tbls.gfcca`'s for `"gfcca"`; **never mix the two** — this
+    footgun is documented in Plan 01's precedent and must be avoided the
+    same way here) on the test-side views for the same group.
+  - Concatenate all groups' train blocks into `F_train`, all groups' test
+    blocks (if `X_views_test` given) into `F_test`.
+  - Raise `ValueError` for an unknown `method`.
 
 ### Step 3 — `experiments/train.py`: branch on single-view vs multi-view
 
-1. Extend the per-cohort loading in `train()` to inspect the raw pkl content
-   (or call both `_load_subsets` and `experiments.multiview.load_multiview_subsets`
-   and merge, whichever is less invasive to the Plan-01-landed code — decide
-   based on the actual landed `_load_subsets` signature, not the draft
-   above) so each cohort key resolves to either the existing
-   `(x, y)` single-view path (**unchanged**) or a new `(x_views, y)`
-   multi-view path.
-2. For a multi-view cohort key, `_cross_validate`'s per-fold body becomes:
-   split every view by the same `train_idx`/`test_idx`,
+1. Extend cohort loading so each cohort key resolves to either the existing
+   `(x, y)` single-view path (**unchanged**) or a `(x_views: dict, y)`
+   multi-view path, based on `"data"` vs `"views"` in the raw pkl content —
+   reuse `experiments.multiview.load_multiview_cohort` rather than
+   duplicating its validation.
+2. For a multi-view cohort key, the per-fold body: split every view (by
+   name) and `y` by the same `train_idx`/`test_idx`,
    `MultiViewDataLoader.preprocess_views(...)`, then
-   `fuse_views(..., method=cfg.get("fusion", {}).get("method", "gfcca"))`
+   `fuse_views(..., method=cfg["fusion"].get("method", "gfcca"), view_groups=cfg["fusion"].get("view_groups"))`
    using `CCA_DEFAULTS`/`GFCCA_DEFAULTS` merged with any `fusion.*` config
-   overrides (same override-merge pattern `_build_model` already uses for
-   model hyperparameters), producing `F_train`/`F_test`, then continue
-   exactly as today (`model.fit(F_train, y_tr)`, evaluate, save). Do not
-   duplicate the whole `_cross_validate` function if the diff can be kept to
-   a single branch inside it.
-3. Add a `--fusion` typer option (`cca`/`gfcca`/`none` — `none` only valid
-   for single-view cohorts, or a no-op if a multi-view cohort's config
-   already omits fusion... actually per Decision 3, fusion is never "off" by
-   choice for multi-view data since CCA/GFCCA fusion is *how* multiple views
-   become one feature matrix a classifier can consume — clarify in the
-   flag's help text that `--fusion` only overrides *which* fusion method,
-   not whether fusion happens).
-4. `--grid` for a multi-view cohort should additionally sweep
-   `CCA_GRID`/`GFCCA_GRID` (whichever `fusion.method` is active) the same
-   way it already sweeps `TBLS_GRID`/`BLS_GRID` — the grid becomes the
-   Cartesian product of model params × fusion params. If this makes
-   `_run_grid` too large a diff, an acceptable narrower scope for this plan
-   is: `--grid` on a multi-view cohort sweeps *only* the model grid at a
-   fixed fusion default, and sweeping fusion params is left as an explicit
-   follow-up noted in the acceptance report — call this trade-off out
-   explicitly if taken, don't silently ship a partial grid without saying so.
+   overrides (same override-merge pattern `_build_model` already uses),
+   producing `F_train`/`F_test`, then continue exactly as today
+   (`model.fit(F_train, y_tr)`, evaluate, save). Keep the diff to a branch
+   inside the existing per-fold function rather than a parallel copy of it,
+   if the landed Plan 01 code structure allows.
+3. Add a `--fusion [cca|gfcca]` typer option overriding `fusion.method` for
+   multi-view cohorts; document in its help text that it only overrides
+   *which* fusion method runs, not whether fusion happens (fusion always
+   runs for a multi-view cohort — it's how multiple views become one
+   feature matrix a classifier can consume).
+4. `--grid` scope for this plan: sweep **only** the model grid
+   (`TBLS_GRID`/`BLS_GRID`) at a fixed fusion default for multi-view
+   cohorts; do not also sweep `CCA_GRID`/`GFCCA_GRID` in this pass. State
+   this explicitly in the acceptance report as a known, intentional scope
+   limit (sweeping fusion hyperparameters too is a reasonable follow-up, not
+   silently dropped — just not in this plan, to keep the diff reviewable).
 
-### Step 4 — Tests
+### Step 4 — Tests: `tests/test_multiview.py` (new)
 
-`tests/test_multiview.py` (new):
-
-- A pytest fixture generating a **synthetic** 2-view dataset: take
-  `sklearn.datasets.make_classification(n_samples=120, n_features=16, ...)`
-  and split its columns at index 8 into `X1 = X[:, :8]`, `X2 = X[:, 8:]` —
-  **docstring/comment must say this is an arbitrary synthetic split for
-  wiring validation only, not a real multi-view dataset**.
-- `test_multiview_pkl_contract_detection`: a cohort dict with `"views"` is
-  detected as multi-view; one with `"data"` as single-view; one with both or
-  neither raises.
-- `test_multiview_preprocess_views_shapes`: `MultiViewDataLoader.preprocess_views`
-  returns per-view arrays with the same row count as `y`, feature selection
-  applied independently per view (assert different selected-feature counts
-  across two views with different informative-feature ratios).
-- `test_multiview_resampling_smote_family_raises`: `resampling="smote"`
-  raises `ValueError` inside `preprocess_views`.
-- `test_multiview_resampling_index_based_keeps_views_aligned`:
-  `resampling="oversample"`/`"undersample"` — assert all views and `y` have
-  identical resampled row count and that view rows still correspond (e.g. by
-  resampling a dataset where view 1's values are a deterministic function of
-  view 2's, and checking the relationship still holds post-resample).
-- `test_fuse_views_cca` / `test_fuse_views_gfcca`: `fuse_views` on the
-  synthetic 2-view fixture produces finite `F_train`/`F_test` of the
-  expected concatenated width (`2 * k` for a single view pair).
+- A pytest fixture generating a **synthetic** 2-view dataset: split
+  `sklearn.datasets.make_classification(n_samples=120, n_features=16, ...)`'s
+  columns at index 8 into `{"view_a": X[:, :8], "view_b": X[:, 8:]}` —
+  docstring/comment must state this is an arbitrary synthetic split for
+  wiring validation only, not a real multi-view dataset.
+- `test_load_multiview_cohort_contract`: a cohort dict with `"views"` loads
+  correctly; one with `"data"` is rejected by this loader (it's the
+  single-view path's job); one with both or neither raises `ValueError`.
+- `test_preprocess_views_independent_per_view`: `MultiViewDataLoader.preprocess_views`
+  returns per-view arrays with the same row count as `y`; feature selection
+  applied independently (assert different selected-feature counts across two
+  views constructed with different informative-feature ratios).
+- `test_resampling_smote_family_raises`: `resampling="smote"` raises
+  `ValueError` inside `preprocess_views` for multi-view data.
+- `test_resampling_index_based_keeps_views_aligned`: `"oversample"`/
+  `"undersample"` — all views and `y` end with identical row count; verify
+  alignment held by resampling a dataset where `view_b`'s values are a
+  deterministic function of `view_a`'s, and checking the relationship still
+  holds post-resample.
+- `test_fuse_views_single_group_cca` / `test_fuse_views_single_group_gfcca`:
+  default `view_groups=None` on the 2-view fixture produces finite
+  `F_train`/`F_test` of the expected width.
+- `test_fuse_views_groups_partition_validation`: a `view_groups` covering a
+  view twice, or missing one, raises `ValueError`.
+- `test_fuse_views_passthrough_singleton_group`: a 3-view fixture
+  (`view_a`, `view_b`, `view_c`) with `view_groups=[["view_a","view_b"],["view_c"]]`
+  — assert the singleton group's output columns equal `view_c`'s
+  preprocessed columns exactly (no CCA/GFCCA call happened for it).
 - `test_train_cli_multiview_smoke` (integration): write the synthetic
-  2-view fixture to a temp pkl (`tmp_path`), point a minimal config at it,
-  run `experiments.train.train(...)` (or invoke the typer `app` via
-  `typer.testing.CliRunner`) with `--n-splits 2`, assert it completes and
-  produces the expected Excel output — this is the multi-view analog of the
-  existing `tests/test_real_dataset_smoke.py`, but synthetic since there's
-  no real multi-view data to skip-if-absent.
+  2-view fixture to a temp pkl (`tmp_path`), point a minimal config at it
+  (with a `fusion` block), run the CLI (`typer.testing.CliRunner` or direct
+  function call, matching how `tests/test_experiments_train.py` already
+  invokes `train.py` internals) with `--n-splits 2`, assert it completes and
+  produces the expected Excel output.
 
 ### Step 5 — Docs
 
-- New `docs/usage-multiview-fusion.md`: what CCA/GFCCA fusion is (reuse the
-  explanation from this plan's "Why" section), the pkl contract (Decision
-  1), the resampling restrictions (Decision 2) and why, the config schema,
-  and a prominent note at the top: *"No real multi-view dataset exists in
-  this project yet; this document describes the convention future data must
-  follow, validated here only against a synthetic 2-view fixture."*
-- `docs/usage-experiments-cli.md`: short new section linking to the above,
-  covering `--fusion` and the multi-view `--grid` behavior.
-- `README.md`: add the new doc to the documentation index table.
-- `experiments/datasets/README.md`: add the multi-view pkl contract next to
-  the existing single-view one, so whoever prepares the real dataset (e.g.
-  the fundus-image export) has it in the same place as the rest of the
-  dataset-loading documentation.
+Already done (`docs/usage-multiview-fusion.md`, `experiments/datasets/README.md`,
+`README.md`'s doc index). Update `docs/usage-experiments-cli.md` with a short
+section covering `--fusion` and the multi-view `--grid` scope limit from
+Step 3.4, linking to `docs/usage-multiview-fusion.md` rather than repeating
+its contract. **Do not touch any `.zh-CN.md` file** — Chinese translations
+are handled separately.
 
 ## Verification commands and test cases
 
@@ -352,45 +253,46 @@ uv run ruff check .
 uv run ruff format --check .
 uv run mypy src/tbls              # unchanged scope: experiments/ not covered by strict mypy
 uv run --group experiments python -c "
-from experiments.multiview import load_multiview_subsets, MultiViewDataLoader, fuse_views
+from experiments.multiview import load_multiview_cohort, MultiViewDataLoader, fuse_views
 print('multiview module imports OK')
 "
 ```
 
-No real-data manual verification step is possible or expected for this plan
-(there is no real multi-view dataset) — the synthetic integration test in
-Step 4 is the acceptance bar. Do not claim "verified against real data" in
-the acceptance report; explicitly state it is synthetic-only, pending real
-data.
+No real-data manual verification is possible (no real multi-view dataset
+exists) — the synthetic integration test in Step 4 is the acceptance bar.
+State plainly in the acceptance report that this is synthetic-only,
+consistent with `docs/usage-multiview-fusion.md` Section 6.
 
 ## Acceptance checklist
 
-- [ ] Plan 01 is `ACCEPTED` before this plan starts implementation.
-- [ ] Multi-view pkl contract (Decision 1) implemented exactly as specified;
-      a cohort with both/neither of `"views"`/`"data"` raises a clear error.
+- [ ] Implementation matches `docs/usage-multiview-fusion.md` exactly (pkl
+      contract, resampling restrictions, fusion-group partition rules,
+      passthrough-singleton behavior, config schema) — any deviation is
+      flagged, not silently made.
 - [ ] SMOTE-family resamplers raise `ValueError` for multi-view data;
-      `undersample`/`oversample`/`tomek` work and keep views aligned
-      (verified by the deterministic-relationship test in Step 4).
-- [ ] `fuse_views` correctly dispatches `cca_models` to `tbls.cca.project_cca_features`
-      and `gfcca_models` to `tbls.gfcca.project_cca_features` — never mixed up.
+      `oversample`/`undersample`/`tomek` keep views aligned (verified by the
+      deterministic-relationship test).
+- [ ] `fuse_views` dispatches `cca` results through `tbls.cca.project_cca_features`
+      and `gfcca` results through `tbls.gfcca.project_cca_features` — never
+      mixed up (this exact footgun was called out in this plan).
+- [ ] Fusion-group partition validation rejects a view used twice or missing
+      from every group; a singleton group is proven to be pure passthrough
+      (exact column equality test, not just "no crash").
 - [ ] Single-view cohorts (all current real datasets) are provably
-      unaffected: existing single-view tests
-      (`tests/test_real_dataset_smoke.py`, existing `experiments/train.py`
-      behavior) still pass unmodified.
+      unaffected: `tests/test_real_dataset_smoke.py` and existing
+      `experiments/train.py` behavior pass unmodified.
 - [ ] `experiments/hyperparams.py` has `CCA_DEFAULTS`/`CCA_GRID`/
-      `GFCCA_DEFAULTS`/`GFCCA_GRID`; `GFCCA_SIGMA_GRAPH` is not present as a
-      live key anywhere.
-- [ ] New `docs/usage-multiview-fusion.md` exists, linked from `README.md`
-      and `docs/usage-experiments-cli.md`, and states plainly that it is
-      validated only against synthetic data so far.
-- [ ] Acceptance report explicitly states this was validated with a
-      synthetic 2-view fixture only, not real data, and names the exact
-      follow-up needed once real (e.g. fundus-image) multi-view data exists.
+      `GFCCA_DEFAULTS`/`GFCCA_GRID` with keyword names verified against the
+      actual `build_cca_features`/`build_gfcca_features` signatures.
+- [ ] `docs/usage-experiments-cli.md` (English only) updated for `--fusion`
+      and the `--grid` scope limit; no `.zh-CN.md` file touched.
+- [ ] Acceptance report explicitly states synthetic-only validation and
+      names the exact follow-up needed once real multi-view data exists.
 
 ## Suggested commits
 
 1. `feat(experiments): activate CCA/GFCCA hyperparameter defaults and grids`
-2. `feat(experiments): add MultiViewDataLoader and CCA/GFCCA fusion wiring`
-3. `feat(experiments): multi-view branch in train.py CLI (--fusion, --grid)`
+2. `feat(experiments): add MultiViewDataLoader, fusion groups, and CCA/GFCCA wiring`
+3. `feat(experiments): multi-view branch in train.py CLI (--fusion)`
 4. `test(experiments): synthetic multi-view fixture and end-to-end smoke test`
-5. `docs: multi-view fusion convention and usage`
+5. `docs: multi-view fusion CLI usage (English only)`

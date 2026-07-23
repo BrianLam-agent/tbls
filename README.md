@@ -68,6 +68,7 @@ All classifiers (`TBLS`, `BroadLearningSystem`) are standard
 | [`docs/usage-bls.md`](docs/usage-bls.md) | `BroadLearningSystem` tutorial: parameters, class imbalance, Woodbury incremental enhancement. |
 | [`docs/usage-cca-gfcca.md`](docs/usage-cca-gfcca.md) | `PairwiseKCCA`/`GraphFuzzyKCCA` tutorial: two-view API, multi-view pipelines, why there's no `Pipeline` support. |
 | [`docs/usage-experiments-cli.md`](docs/usage-experiments-cli.md) | Running the `experiments/` training CLI and smoke-check script against real datasets. |
+| [`docs/usage-multiview-fusion.md`](docs/usage-multiview-fusion.md) | Multi-view pkl data contract and CCA/GFCCA fusion-group config (convention only -- not yet implemented; see `docs/plan/02-*`). |
 | [`docs/experimental-modules.md`](docs/experimental-modules.md) | What works and what doesn't in `tbls.genoptim`/`tbls.ensemble`, and why. |
 | [`docs/development.md`](docs/development.md) | Local dev setup, conventions, how to add a new estimator, docs/translation structure. |
 | [`docs/release-process.md`](docs/release-process.md) | Semantic versioning, changelog generation, the tag-triggered CI/CD release pipeline, PyPI publishing. |
