@@ -154,8 +154,37 @@ uv run --group experiments python experiments/train.py --grid
 uv run --group experiments python experiments/train.py --model bls --grid --n-splits 3
 ```
 
-`CCA_*`/`GFCCA_*` constants are kept commented in `hyperparams.py` as reference
-for a future multi-view-fusion plan; they are not read by any code path today.
+`CCA_DEFAULTS`/`CCA_GRID`/`GFCCA_DEFAULTS`/`GFCCA_GRID` define fusion
+hyperparameters for multi-view cohorts (see
+[`usage-multiview-fusion.md`](./usage-multiview-fusion.md)); the `*_DEFAULTS`
+are applied when fusion runs, while `--grid` **does not** sweep them in this
+pass (see "Multi-view fusion and `--grid`" below).
+
+## Multi-view fusion and `--fusion`
+
+For datasets whose cohorts use the multi-view pkl contract
+(`{"views": {...}, "target": y}` instead of `{"data": X, "target": y}` --
+see [`usage-multiview-fusion.md`](./usage-multiview-fusion.md) for the full
+contract, fusion-group config, and resampling restrictions), `train.py`
+auto-detects each cohort as multi-view from its pkl shape, runs per-view
+preprocessing + row-aligned resampling + CCA/GFCCA fusion per `fusion.view_groups`,
+then fits the model on the fused matrix exactly as for single-view `X`.
+
+```bash
+uv run --group experiments python experiments/train.py --dataset fundus_multiview
+uv run --group experiments python experiments/train.py --dataset fundus_multiview --fusion cca
+```
+
+`--fusion [cca|gfcca]` overrides `fusion.method` for multi-view cohorts. It only
+overrides *which* fusion method runs -- fusion always runs for a multi-view
+cohort (it is how multiple views become one feature matrix a classifier can
+consume). Single-view cohorts are unaffected and ignore `--fusion`.
+
+`--grid` scope for multi-view cohorts: sweeps **only** the model grid
+(`TBLS_GRID`/`BLS_GRID`) at a fixed fusion default; fusion hyperparameters
+(`CCA_GRID`/`GFCCA_GRID`) are not swept in this pass. Sweeping them too is a
+reasonable follow-up, not silently dropped -- it is out of scope here to keep the
+diff reviewable.
 
 ## Feature selection and resampling options
 
