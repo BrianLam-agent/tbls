@@ -18,12 +18,12 @@ defined in :mod:`experiments.hyperparams` and writes a ranked ``GridSummary``.
 from __future__ import annotations
 
 import inspect
-import logging
 from pathlib import Path
 import time
 from typing import Any
 
 import joblib
+from loguru import logger
 import numpy as np
 from sklearn.base import BaseEstimator
 from sklearn.model_selection import KFold, ParameterGrid
@@ -40,14 +40,63 @@ from hyperparams import (
     TBLS_DEFAULTS,
     TBLS_GRID,
 )
+from logging_schema import (
+    FoldCompletedEvent,
+    GridSummaryEvent,
+    RunFinishedEvent,
+    RunStartedEvent,
+)
+from logging_setup import configure_logging
 from multiview import MultiViewDataLoader, fuse_views, load_multiview_cohort
 from tbls import TBLS, BroadLearningSystem
 
 app = typer.Typer(add_completion=False)
-logger = logging.getLogger(__name__)
 
 # Legacy YAML config keys -> TBLS constructor parameter names.
 _TBLS_KEY_MAP = {"map_num": "n_map_trees", "enhance_num": "n_enhance_trees"}
+
+
+def _native(value: Any) -> Any:
+    """Coerce a value to a JSON-native Python scalar (numpy -> python).
+
+    Args:
+        value: A scalar (possibly a :class:`numpy.generic`) or ``None``.
+
+    Returns:
+        ``None`` unchanged; numpy scalars via ``.item()``; anything else as-is.
+    """
+    if value is None:
+        return None
+    if isinstance(value, np.generic):
+        return value.item()
+    return value
+
+
+def _native_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
+    """Return ``metrics`` with every numpy scalar coerced to native Python.
+
+    Args:
+        metrics: A per-fold metrics dict (may include numpy scalars).
+
+    Returns:
+        A new dict safe to embed in a loguru-bound JSON event.
+    """
+    return {k: _native(v) for k, v in metrics.items()}
+
+
+def _native_params(params: dict[str, Any] | None) -> dict[str, object] | None:
+    """Return grid-point params with numpy scalars coerced to native Python.
+
+    Args:
+        params: A grid-point hyperparameter dict, or ``None`` for non-grid runs.
+
+    Returns:
+        ``None`` unchanged; otherwise a new dict safe to embed in a JSON event.
+    """
+    if params is None:
+        return None
+    return {k: _native(v) for k, v in params.items()}
+
 
 # A cohort is either single-view (np.ndarray X, np.ndarray y) or multi-view
 # (dict[str, np.ndarray] views, np.ndarray y); tagged so the per-fold body can
@@ -179,6 +228,8 @@ def _cross_validate(
     dataset_name: str,
     key: str,
     grid_point: dict[str, Any] | None = None,
+    grid_idx: int | None = None,
+    predictions_npz: Path | None = None,
 ) -> list[dict[str, Any]]:
     """Run k-fold CV on one cohort; return per-fold metrics.
 
@@ -187,6 +238,13 @@ def _cross_validate(
     indices, per-view-preprocessed + row-aligned-resampled via
     :class:`MultiViewDataLoader`, then fused via :func:`fuse_views` before the
     model fit - see ``docs/usage-multiview-fusion.md``.
+
+    When ``predictions_npz`` is given and this is a non-grid run
+    (``grid_point is None``), the raw per-fold ``y_true``/``y_pred``/
+    ``y_score`` arrays are persisted to that ``.npz`` side-file (keyed by
+    ``{key}_fold{N}_*``) so :mod:`experiments.visualize` can render
+    ROC/PR/confusion-matrix plots. Grid runs skip the side-file (it would
+    explode in size across all swept points).
     """
     model_cfg = {
         **cfg.get("model", {}),
@@ -214,6 +272,7 @@ def _cross_validate(
     fkwargs = _fusion_kwargs(cfg, method)
 
     fold_results: list[dict[str, Any]] = []
+    preds: dict[str, np.ndarray] = {}
     for fold, (train_idx, test_idx) in enumerate(kf.split(split_array), start=1):
         y_train, y_test = y[train_idx], y[test_idx]
 
@@ -243,14 +302,37 @@ def _cross_validate(
         metrics = TBLSEvaluator.calculate_metrics(y_test, y_pred, y_score)
         metrics["fold"] = fold
         fold_results.append(metrics)
+
+        # Persist raw per-fold arrays for ROC/PR/confusion-matrix plots.
+        # Only for non-grid runs (grid sweeps would explode the side-file size).
+        if predictions_npz is not None and grid_point is None:
+            preds[f"{key}_fold{fold}_y_true"] = y_test
+            preds[f"{key}_fold{fold}_y_pred"] = y_pred
+            preds[f"{key}_fold{fold}_y_score"] = np.asarray(y_score)
+
+        # Emit a structured FoldCompletedEvent to stdout + the JSONL sink.
+        fold_event: FoldCompletedEvent = {
+            "event": "fold_completed",
+            "dataset": dataset_name,
+            "cohort_key": key,
+            "fold": fold,
+            "n_splits": n_splits,
+            "metrics": _native_metrics({k: v for k, v in metrics.items() if k != "fold"}),
+            "grid_idx": grid_idx,
+            "grid_params": _native_params(grid_point),
+            "predictions_file": (
+                predictions_npz.name if predictions_npz is not None and grid_point is None else None
+            ),
+        }
+        logger.bind(**fold_event).info("fold_completed")
         logger.info(
-            "dataset=%s key=%s fold=%d/%d acc=%.4f",
-            dataset_name,
-            key,
-            fold,
-            n_splits,
-            metrics.get("accuracy", float("nan")),
+            f"dataset={dataset_name} key={key} fold={fold}/{n_splits} "
+            f"acc={metrics.get('accuracy', float('nan')):.4f}"
         )
+
+    if predictions_npz is not None and grid_point is None and preds:
+        predictions_npz.parent.mkdir(parents=True, exist_ok=True)
+        np.savez(predictions_npz, **preds)
     return fold_results
 
 
@@ -278,30 +360,36 @@ def _run_grid(
     grid_axes = TBLS_GRID if name == "tbls" else BLS_GRID
 
     rows: list[dict[str, Any]] = []
+    n_points = len(ParameterGrid(grid_axes))
     for i, point in enumerate(ParameterGrid(grid_axes), start=1):
-        fold_results = _cross_validate(cfg, cohort, dataset_name, key, grid_point=point)
+        fold_results = _cross_validate(
+            cfg, cohort, dataset_name, key, grid_point=point, grid_idx=i, predictions_npz=None
+        )
         saver.save_fold_results(fold_results, sheet_name=f"Grid_{i:03d}")
         avg = TBLSEvaluator.calculate_average_metrics(fold_results)
         rows.append({"grid_idx": i, "model": model_name, **point, **avg})
         logger.info(
-            "dataset=%s key=%s grid %d/%d %s acc=%.4f",
-            dataset_name,
-            key,
-            i,
-            len(ParameterGrid(grid_axes)),
-            point,
-            avg.get("avg_accuracy", float("nan")),
+            f"dataset={dataset_name} key={key} grid {i}/{n_points} {point} "
+            f"acc={avg.get('avg_accuracy', float('nan')):.4f}"
         )
 
     rows.sort(key=_rank_key, reverse=True)
     saver.save_summary(rows, sheet_name="GridSummary")
     winner = rows[0]
+    winner_params = {k: winner[k] for k in winner if k in grid_axes}
+    _winner_metric = _native(winner.get("avg_balanced_accuracy"))
+    summary_event: GridSummaryEvent = {
+        "event": "grid_summary",
+        "dataset": dataset_name,
+        "cohort_key": key,
+        "winner_params": {k: _native(winner[k]) for k in grid_axes},
+        "winner_metric": float(_winner_metric) if _winner_metric is not None else 0.0,
+        "n_grid_points": n_points,
+    }
+    logger.bind(**summary_event).info("grid_summary")
     logger.info(
-        "dataset=%s key=%s grid winner: %s (avg_balanced_accuracy=%.4f)",
-        dataset_name,
-        key,
-        {k: winner[k] for k in winner if k in grid_axes},
-        winner.get("avg_balanced_accuracy", float("nan")),
+        f"dataset={dataset_name} key={key} grid winner: {winner_params} "
+        f"(avg_balanced_accuracy={winner.get('avg_balanced_accuracy', float('nan')):.4f})"
     )
     return rows
 
@@ -325,8 +413,6 @@ def train(
     ),
 ) -> None:
     """Run a TBLS/BLS training experiment from a YAML config."""
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-
     cfg = yaml.safe_load(config.read_text())
     if dataset is not None:
         cfg["dataset"] = dataset
@@ -351,13 +437,24 @@ def train(
     out_base = Path(cfg.get("output_dir", "results_dir"))
     model_name = cfg.get("model", {}).get("name", "tbls")
 
+    # Dual-sink logging (human-readable stdout + structured JSONL file) at the
+    # run-level dir. The JSONL and the ``.npz`` predictions side-file live
+    # under ``run_dir/logs/``; per-key Excel dirs are siblings of ``run_dir``.
+    run_dir = out_base / f"{model_name}_{dataset_name}" / timestamp
+    configure_logging(run_dir, dataset_name, timestamp)
+    run_start = time.perf_counter()
+    started_event: RunStartedEvent = {
+        "event": "run_started",
+        "dataset": dataset_name,
+        "model": model_name,
+        "fusion_method": cfg.get("fusion", {}).get("method"),
+        "grid": grid,
+    }
+    logger.bind(**started_event).info("run_started")
+
     cohorts = _load_cohorts(pkl_path)
     logger.info(
-        "dataset=%s model=%s keys=%s grid=%s",
-        dataset_name,
-        model_name,
-        list(cohorts.keys()),
-        grid,
+        f"dataset={dataset_name} model={model_name} keys={list(cohorts.keys())} grid={grid}"
     )
 
     for key, cohort in cohorts.items():
@@ -365,12 +462,10 @@ def train(
         if is_mv:
             views, y, _ = cohort
             shapes = {n: v.shape for n, v in views.items()}
-            logger.info(
-                "=== %s / %s : multiview views=%s y=%s ===", dataset_name, key, shapes, y.shape
-            )
+            logger.info(f"=== {dataset_name} / {key} : multiview views={shapes} y={y.shape} ===")
         else:
             x, y = cohort
-            logger.info("=== %s / %s : X=%s y=%s ===", dataset_name, key, x.shape, y.shape)
+            logger.info(f"=== {dataset_name} / {key} : X={x.shape} y={y.shape} ===")
         result_dir = out_base / f"{model_name}_{dataset_name}" / key / timestamp
         saver = TBLSResultSaver(
             dataset_name=dataset_name,
@@ -385,11 +480,26 @@ def train(
         if grid:
             _run_grid(cfg, cohort, dataset_name, key, model_name, saver)
         else:
-            fold_results = _cross_validate(cfg, cohort, dataset_name, key)
+            pred_npz = run_dir / "logs" / f"{dataset_name}_{timestamp}_{key}_predictions.npz"
+            fold_results = _cross_validate(
+                cfg,
+                dataset_name=dataset_name,
+                key=key,
+                cohort=cohort,
+                grid_idx=None,
+                predictions_npz=pred_npz,
+            )
             saver.save_fold_results(fold_results, sheet_name=f"{model_name}_Details")
             avg = TBLSEvaluator.calculate_average_metrics(fold_results)
             saver.save_summary([{"key": key, **avg}], sheet_name=f"{model_name}_Summary")
-            logger.info("dataset=%s key=%s avg=%s", dataset_name, key, avg)
+            logger.info(f"dataset={dataset_name} key={key} avg={avg}")
+
+    finished_event: RunFinishedEvent = {
+        "event": "run_finished",
+        "dataset": dataset_name,
+        "duration_seconds": time.perf_counter() - run_start,
+    }
+    logger.bind(**finished_event).info("run_finished")
 
 
 if __name__ == "__main__":
