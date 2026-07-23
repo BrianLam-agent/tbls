@@ -206,3 +206,68 @@ NumPy 2.5` emitted by **joblib** while unpickling the legacy `.pkl` (not by
 - `dist/` build artifacts were removed after verification (git-ignored).
 - The work is entirely on `master`; **no worktree merge or branch switch is
   needed**.
+
+## Reviewer addendum (post-report, independent verification)
+
+- **Status: ACCEPTED**, with one direct fix applied by the reviewer (not a new
+  compensating plan — small, mechanical, no architecture/scope change).
+- All 11 verification commands in the report were independently re-run
+  (`uv sync`, `uv sync --group dev --group experiments`, import smoke test,
+  `cross_val_score` smoke test, `pytest`, `ruff check`/`format --check`,
+  `mypy src/tbls`, `uv build`, `twine check dist/*`, `experiments/smoke_run.py`,
+  `tests/test_real_dataset_smoke.py`) and all reproduced the reported results.
+  Additionally ran `experiments/train.py` end-to-end (not required by the plan,
+  done as extra due diligence) against all four sub-datasets in
+  `biomedical_larger.pkl` (`DM`, `CKD`, `BC`, `CG`) with 2-fold CV — completed
+  without error, wrote Excel results to a (git-ignored) `results_dir/`, with
+  sane, non-degenerate metrics (accuracy 0.83–0.91 across sub-datasets).
+- **One real regression found by direct source review and fixed**:
+  `src/tbls/_graph.py::build_graph_laplacian`'s kNN-edge-similarity bandwidth
+  was computed as `np.median(d_vals[d_vals > 0])` (median over only the
+  kNN-selected edges) instead of the original
+  `othercode/tbls.py::_build_graph_laplacian`'s
+  `np.median(dists[dists > 0])` (median over *all* pairwise distances). This
+  silently changed the fitted regularization strength whenever
+  `graph_gamma > 0` and slipped through because the only test exercising that
+  path (`test_tbls_ifs_and_graph_paths`) checked output finiteness/shape, not
+  numerical fidelity to the canonical implementation — exactly the class of
+  bug §9.2's "regression check" comment intended to catch but didn't, in
+  practice, catch. Not listed in the "Deviations from the plan" section, i.e.
+  introduced silently rather than flagged.
+  - **Fix**: restored the full-matrix median in `_graph.py`, with a comment
+    explaining why (commit to follow this report).
+  - **New test coverage added**: `tests/test_shared_modules.py` (13 new
+    tests), giving `_kernel.py`/`_ifs.py`/`_graph.py` their own direct unit
+    tests for the first time (previously only exercised indirectly through
+    `TBLS.fit`). In particular
+    `test_build_graph_laplacian_bandwidth_uses_full_distance_matrix`
+    reimplements the reference computation independently against
+    `scipy.spatial.distance.cdist` and asserts bit-for-bit (`atol=1e-10`)
+    agreement with `build_graph_laplacian` — this is a regression guard against
+    the exact bug class just found, not just a shape/finiteness smoke check.
+  - Also fixed, while in the area: a harmless but noisy `RuntimeWarning:
+    divide by zero` in `_graph.py`'s degree-normalization step (present in the
+    original code too, `1/sqrt(0)` computed then discarded via `np.where` for
+    isolated graph nodes) — wrapped in `np.errstate(divide="ignore",
+    invalid="ignore")` for a cleaner user-facing experience; no behavior change.
+- Full verification suite re-run after the fix: `36 passed` (23 original + 13
+  new), `ruff check .` clean, `ruff format --check .` clean, `mypy src/tbls`
+  clean, `uv build` + `twine check dist/*` both PASSED, wheel contents
+  unchanged (still only `tbls/` package files, no `experiments/`/`tests`/data).
+- No other correctness deviations were found on direct line-by-line comparison
+  of `bls.py`, `cca.py`, `gfcca.py`, `_kernel.py`, `_ifs.py` against their
+  `othercode/` originals — all faithful ports plus the intentional, documented
+  refactor (shared-module extraction, `BaseEstimator`-only for the two-view
+  CCA classes, dropped redundant `get_params`/`set_params` overrides now
+  inherited from `BaseEstimator`).
+- All items in the plan's Acceptance checklist are confirmed satisfied,
+  including the two that most directly matter to the user: the wheel contains
+  only `tbls/` (verified via `zipfile -l`), and `experiments/smoke_run.py` was
+  actually run against real data with captured output (both by the
+  implementer and independently re-verified by the reviewer here).
+- Remaining risks are unchanged from the implementer's list (§ above): PyPI
+  publishing itself is a separate, deliberately out-of-scope follow-up
+  (author/URL placeholders, name availability, Trusted Publisher setup);
+  `genoptim.fitness`/`ga_optimizer` remain non-functional against `TBLS` by
+  design; Cython kernels are a later phase.
+

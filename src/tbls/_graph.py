@@ -66,7 +66,12 @@ def build_graph_laplacian(
     # Similarity only for the upper triangular part (vectorized)
     i_idx, j_idx = np.where(adj & (np.arange(n)[:, None] < np.arange(n)[None, :]))
     d_vals = dists[i_idx, j_idx]
-    median_dist = np.median(d_vals[d_vals > 0]) if np.any(d_vals > 0) else 1.0
+    # NOTE: the bandwidth is the median over *all* pairwise distances (not just
+    # the kNN-selected edges in d_vals) -- this matches the original
+    # othercode/tbls.py::_build_graph_laplacian bandwidth exactly. Using only
+    # the (already nearest-neighbor-filtered) edge subset would systematically
+    # under-estimate the median and change the fitted regularization strength.
+    median_dist = np.median(dists[dists > 0]) if np.any(dists > 0) else 1.0
     eta = np.exp(-(d_vals**2) / (2 * median_dist**2))
 
     w_in = np.zeros((n, n), dtype=np.float64)
@@ -86,14 +91,16 @@ def build_graph_laplacian(
             w_p_val = 1.0 / n
             w_p[i, j] = w_p[j, i] = w_p_val
 
-    # Normalized Laplacians
+    # Normalized Laplacians. `np.where` evaluates both branches eagerly, so
+    # 1/sqrt(0) triggers a harmless RuntimeWarning for isolated nodes (deg=0)
+    # even though that branch's result is discarded; suppress it locally.
     deg_in = w_in.sum(axis=1)
-    deg_in_inv_sqrt = np.where(deg_in > 0, 1.0 / np.sqrt(deg_in), 0)
+    deg_p = w_p.sum(axis=1)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        deg_in_inv_sqrt = np.where(deg_in > 0, 1.0 / np.sqrt(deg_in), 0)
+        deg_p_inv_sqrt = np.where(deg_p > 0, 1.0 / np.sqrt(deg_p), 0)
     d_inv_sqrt = np.diag(deg_in_inv_sqrt)
     l_in = np.eye(n) - d_inv_sqrt @ w_in @ d_inv_sqrt
-
-    deg_p = w_p.sum(axis=1)
-    deg_p_inv_sqrt = np.where(deg_p > 0, 1.0 / np.sqrt(deg_p), 0)
     d_p_inv_sqrt = np.diag(deg_p_inv_sqrt)
     l_p = np.eye(n) - d_p_inv_sqrt @ w_p @ d_p_inv_sqrt
 

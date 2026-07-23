@@ -10,4 +10,4 @@ a node is only `IMPLEMENTED`.
 
 | Plan | Node | Hard predecessors | Status | Implementation commit | Report |
 |------|------|-------------------|--------|-----------------------|--------|
-| `01-package-refactor-and-real-dataset-verification.md` | `01-package-refactor` | none | `IMPLEMENTED` | `a94c64d`..`d664ab6` (master) | `reports/01-package-refactor-and-real-dataset-verification.md` |
+| `01-package-refactor-and-real-dataset-verification.md` | `01-package-refactor` | none | `ACCEPTED` | `a94c64d`..`d664ab6` (master) + reviewer fix commit | `reports/01-package-refactor-and-real-dataset-verification.md` (see "Reviewer addendum") |
