@@ -183,7 +183,10 @@ class TBLS(BaseEstimator, ClassifierMixin):  # type: ignore[misc]
         self.fitted_ = False
 
     def _build_mapping_trees(
-        self, X: NDArray[np.float64], y: NDArray[np.int64], rng: np.random.RandomState
+        self,
+        X: NDArray[np.float64],
+        y: NDArray[np.int64],
+        rng: np.random.RandomState,
     ) -> tuple[list[RegressionTreeModule], NDArray[np.float64]]:
         """Build the mapping trees and return them with their stacked outputs."""
         trees: list[RegressionTreeModule] = []

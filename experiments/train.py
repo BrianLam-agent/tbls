@@ -137,7 +137,8 @@ def _fusion_kwargs(cfg: dict[str, Any], method: str) -> dict[str, Any]:
 
 
 def _build_model(
-    model_cfg: dict[str, Any], grid_point: dict[str, Any] | None = None
+    model_cfg: dict[str, Any],
+    grid_point: dict[str, Any] | None = None,
 ) -> BaseEstimator:
     """Build a ``TBLS`` or ``BroadLearningSystem`` from the model config.
 
