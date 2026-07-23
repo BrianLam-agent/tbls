@@ -1,0 +1,40 @@
+# Publish `tbls` to PyPI on GitHub Release.
+#
+# Prerequisite (one-time, manual): register the `tbls` project on PyPI and
+# configure a "Trusted Publisher" pointing at this repo + workflow file, so no
+# API token is stored as a secret. See:
+# https://docs.pypi.org/trusted-publishers/
+
+name: Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - run: uv build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write  # required for OIDC trusted publishing
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

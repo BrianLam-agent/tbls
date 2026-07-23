@@ -1,0 +1,114 @@
+# Ruff configuration for the `tbls` package + `experiments/` scripts + tests.
+#
+# Source layout note: `src/tbls/` does not exist yet until the refactor in
+# docs/design.md is executed; until then Ruff simply lints whatever paths
+# exist. Update `src` below if the directory layout changes.
+src = ["src", "experiments", "tests"]
+
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".git-rewrite",
+    ".hg",
+    ".ipynb_checkpoints",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pyenv",
+    ".pytest_cache",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    ".vscode",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "site-packages",
+    "venv",
+    # Legacy code kept only for reference until deleted/migrated by the
+    # refactor plan (docs/design.md section 4.3 and 4.1/4.2). Do not lint or
+    # format it; remove these entries once the corresponding files are gone.
+    "othercode",
+    "genetic_optimizer",
+    "ensemble",
+    "bls.py",
+    "tbls.py",
+    "common.py",
+    "main.py",
+    "dataprocess.py",
+    "dataset",
+]
+
+force-exclude = true
+
+line-length = 100
+indent-width = 4
+target-version = "py310"
+
+[lint]
+select = [
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "F",     # pyflakes
+    "I",     # isort (import sorting)
+    "N",     # pep8-naming
+    "D",     # pydocstyle (Google-style docstrings, enforces design.md convention)
+    "UP",    # pyupgrade (modern Python syntax)
+    "B",     # flake8-bugbear (common bugs)
+    "C4",    # flake8-comprehensions
+    "SIM",   # flake8-simplify
+    "RET",   # flake8-return
+    "ARG",   # flake8-unused-arguments
+    "PTH",   # flake8-use-pathlib
+    "PLE",   # pylint errors
+    "RUF",   # Ruff-specific rules
+]
+
+ignore = [
+    "E501",    # line length handled by formatter; long lines in docstrings/URLs ok
+    "D100",    # missing docstring in public module (not required at module level)
+    "D104",    # missing docstring in public package (__init__.py can be terse)
+    "D107",    # missing docstring in __init__: google convention documents it in the class docstring
+    "D203",    # conflicts with D211 (no-blank-line-before-class)
+    "D213",    # conflicts with D212 (multi-line-summary-first-line)
+    "PLR0913", # too many arguments (ML estimators legitimately have many hyperparameters)
+    "PLR2004", # magic value comparison
+    "N803",    # argument name should be lowercase (X, Y are sklearn/math convention)
+    "N806",    # variable in function should be lowercase (X, Y, K matrices)
+    "RUF002",  # Chinese punctuation in docstrings (bilingual comments allowed)
+    "RUF003",  # Chinese punctuation in comments
+]
+
+[lint.per-file-ignores]
+# Tests: docstrings optional, asserts expected, fixtures may shadow names.
+"tests/**" = ["D", "ARG001", "ARG002"]
+# CLI: typer options accessed via signature defaults, not always "used" directly.
+"experiments/**" = ["D", "ARG001"]
+
+[lint.isort]
+case-sensitive = true
+combine-as-imports = true
+force-sort-within-sections = true
+known-first-party = ["tbls"]
+
+[lint.pydocstyle]
+convention = "google"
+
+[lint.pylint]
+max-args = 8
+max-locals = 20
+max-branches = 15
+
+[format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+docstring-code-format = true
+docstring-code-line-length = 88
