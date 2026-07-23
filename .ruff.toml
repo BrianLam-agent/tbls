@@ -30,6 +30,12 @@ exclude = [
     "dist",
     "site-packages",
     "venv",
+    # Untracked, non-project scratch/backup files kept in the working tree for
+    # reference (not part of the `tbls` package, never committed): a legacy
+    # code snapshot and a pasted comparison file. Remove these entries if the
+    # files are removed.
+    "BLS",
+    "gfcca.py",
 ]
 
 force-exclude = true

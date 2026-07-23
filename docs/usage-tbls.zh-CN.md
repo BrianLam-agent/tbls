@@ -48,6 +48,11 @@ y_proba = model.predict_proba(X_test)  # 形状 (n_samples, n_classes)
 | `graph_knn` | `10` | 构建相似图所用的最近邻数。`<= 0` 表示全连接。 |
 | `use_kernel_for_graph` | `True` | 若为 `True`，图距离在 RBF 核空间而非原始欧氏空间中计算。 |
 | `random_state` | `None` | 自举采样、特征子空间选择与树播种的随机种子。 |
+| `graph_strategy` | `"discriminative"` | 图拉普拉斯公式：`"discriminative"`（默认，`GraphFuzzyKCCA` 调优过的、仅基于标签的 `Lw - beta*Lb`）或 `"knn"`（原始 kNN 图）。 |
+| `if_strategy` | `"simple"` | IFS 评分公式：`"simple"`（默认，`GraphFuzzyKCCA` 调优过的逐类中心 + 相对邻域）或 `"geib"`（原始 GEIB 公式）。 |
+| `discriminative_beta` | `0.3` | `graph_strategy="discriminative"` 时的类间惩罚权重。 |
+| `if_delta` | `0.5` | `if_strategy="simple"` 时的相对邻域阈值。 |
+| `if_min_weight` | `1e-4` | `if_strategy="simple"` 时的 IFS 权重最小裁剪值。 |
 
 `graph_threshold` 与 `class_sensitive` 为保留的构造参数，仅为兼容 `sklearn.base.clone()`/`get_params()` 而保留，当前在 `fit` 内部并不使用。
 
@@ -68,6 +73,24 @@ model.fit(X_train, y_train)
 ```
 
 当类别在特征空间中严重重叠时（IFS 加权），或当你预期存在普通岭求解会忽略的有用的局部/全局类别结构时（图正则化），启用它们。对于干净、良好分离的合成数据，通常无明显差异--sklearn 兼容性测试套件主要将其用作数值保真度的回归检查（见 [`architecture.md`](./architecture.zh-CN.md)），而非因其总是带来收益。
+
+## 图与 IFS 策略
+
+`TBLS` 提供两种图拉普拉斯公式与两种 IFS 评分公式，可独立选择。默认值复现 `GraphFuzzyKCCA` 调优过的公式（同样的数学，已在 `tbls.gfcca` 中验证）；备选项则逐字复现 `TBLS` 在引入策略切换前的原始行为。
+
+| 策略 | 默认值 | 备选项 |
+|---|---|---|
+| `graph_strategy` | `"discriminative"`--仅基于标签的判别图 `L = Lw - beta*Lb`（无 kNN、无距离），移植自 `GraphFuzzyKCCA`。 | `"knn"`--原始 kNN 图 `L = alpha_in*L_in - alpha_p*L_p`（`_graph.build_graph_laplacian`）。 |
+| `if_strategy` | `"simple"`--逐类欧氏中心距离 + 相对邻域 IFS（`_ifs.compute_if_scores_simple`）。 | `"geib"`--原始的在核空间中的 GEIB 公式（`_ifs.compute_if_scores_geib`）。 |
+
+```python
+# 默认（调优过的 GFCCA 公式）：
+TBLS(use_if_weights=True, graph_gamma=0.1)
+# 原始 TBLS 行为：
+TBLS(use_if_weights=True, graph_gamma=0.1, graph_strategy="knn", if_strategy="geib")
+```
+
+`discriminative_beta`、`if_delta` 与 `if_min_weight` 仅参数化默认（`"discriminative"`/`"simple"`）公式；当对应策略设为 `"knn"`/`"geib"` 时它们被忽略。不支持的策略字符串会在 `fit` 时抛出 `ValueError`。
 
 ## 增量层
 

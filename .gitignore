@@ -51,5 +51,11 @@ experiments/results/
 .DS_Store
 Thumbs.db
 
+# --- Reference-only scratch files (not part of the tbls package or repo
+# history): a pasted pre-refactor project snapshot (contains duplicate large
+# .pkl datasets) and a pasted comparison file, kept locally for review only.
+BLS/
+/gfcca.py
+
 # --- Local agent/tooling artifacts (not part of the published project) ---
 .claude/settings.local*.json

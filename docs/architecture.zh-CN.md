@@ -64,7 +64,7 @@ tbls/                            # 仓库根目录
 |---|---|---|
 | `tbls._kernel` | `rbf_kernel`（通用，`gamma` 由调用方提供）与 `compute_kernel_matrix`/`kernel_distance_matrix`（TBLS 的自适应 gamma 变体） | `tbls.py`、`cca.py`、`gfcca.py` |
 | `tbls._ifs` | `compute_if_scores_geib`（GEIB 公式，对角矩阵）与 `compute_if_scores_simple`（隶属度/非隶属度/犹豫度，向量） | `tbls.py`、`gfcca.py` |
-| `tbls._graph` | `build_graph_laplacian`：基于 kNN 相似度权重的、内在/惩罚图组合拉普拉斯矩阵 | `tbls.py` |
+| `tbls._graph` | `build_graph_laplacian`（kNN 内在/惩罚）与 `build_discriminative_graph_laplacian`（仅基于标签的 `Lw - beta*Lb`，移植自 `GraphFuzzyKCCA` 的内联副本--刻意未与 `gfcca.py` 去重） | `tbls.py` |
 
 这三个模块**刻意不**从 `tbls/__init__.py` 再导出--它们是实现细节，可在不改变公开 API 的前提下被重构（例如以 Cython 扩展替换 `rbf_kernel`/图构造的热点路径）。若你要扩展 `tbls`，请优先调用这些模块，而非第四次重复核/IFS/图的数学推导；参见 [`development.md`](./development.zh-CN.md)。
 

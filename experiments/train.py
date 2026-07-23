@@ -1,18 +1,23 @@
-"""TBLS training CLI: YAML config with typer command-line overrides.
+"""TBLS/BLS training CLI: YAML config with typer command-line overrides.
 
 Run with::
 
     uv run --group experiments python experiments/train.py
     uv run --group experiments python experiments/train.py --dataset biomedical_larger --n-splits 3
+    uv run --group experiments python experiments/train.py --model bls
+    uv run --group experiments python experiments/train.py --grid
 
 Loads a (possibly multi-key) pkl dataset from ``experiments/datasets/``, runs
-k-fold CV (``KFold``, matching the legacy ``main.py``), fits :class:`tbls.TBLS`
-per fold, evaluates with :class:`evaluate.TBLSEvaluator`, and writes Excel
-results with :class:`evaluate.TBLSResultSaver`.
+k-fold CV (``KFold``), fits either :class:`tbls.TBLS` or
+:class:`tbls.BroadLearningSystem` (selected by ``model.name``), evaluates with
+:class:`evaluate.TBLSEvaluator`, and writes Excel results with
+:class:`evaluate.TBLSResultSaver`. ``--grid`` sweeps the hyperparameter grid
+defined in :mod:`experiments.hyperparams` and writes a ranked ``GridSummary``.
 """
 
 from __future__ import annotations
 
+import inspect
 import logging
 from pathlib import Path
 import time
@@ -20,16 +25,21 @@ from typing import Any
 
 import joblib
 import numpy as np
-from sklearn.model_selection import KFold
+from sklearn.base import BaseEstimator
+from sklearn.model_selection import KFold, ParameterGrid
 import typer
 import yaml
 
 from dataprocess import DataLoader
 from evaluate import TBLSEvaluator, TBLSResultSaver
-from tbls import TBLS
+from hyperparams import BLS_DEFAULTS, BLS_GRID, TBLS_DEFAULTS, TBLS_GRID
+from tbls import TBLS, BroadLearningSystem
 
 app = typer.Typer(add_completion=False)
 logger = logging.getLogger(__name__)
+
+# Legacy YAML config keys -> TBLS constructor parameter names.
+_TBLS_KEY_MAP = {"map_num": "n_map_trees", "enhance_num": "n_enhance_trees"}
 
 
 def _load_subsets(pkl_path: Path) -> dict[str, tuple[np.ndarray, np.ndarray]]:
@@ -62,16 +72,55 @@ def _load_subsets(pkl_path: Path) -> dict[str, tuple[np.ndarray, np.ndarray]]:
     return subsets
 
 
+def _build_model(
+    model_cfg: dict[str, Any], grid_point: dict[str, Any] | None = None
+) -> BaseEstimator:
+    """Build a ``TBLS`` or ``BroadLearningSystem`` from the model config.
+
+    Defaults come from ``experiments.hyperparams`` (``TBLS_DEFAULTS`` /
+    ``BLS_DEFAULTS``); the YAML ``model`` section overrides them, with legacy
+    keys ``map_num``/``enhance_num`` translated to ``n_map_trees``/
+    ``n_enhance_trees``. When ``grid_point`` is given (a dict of direct
+    constructor parameter names), it is applied last and wins.
+    """
+    name = model_cfg.get("name", "tbls")
+    if name == "tbls":
+        defaults = TBLS_DEFAULTS
+        cls: type[BaseEstimator] = TBLS
+    elif name == "bls":
+        defaults = BLS_DEFAULTS
+        cls = BroadLearningSystem
+    else:
+        raise ValueError(f"Unsupported model.name: {name!r}. Expected 'tbls' or 'bls'.")
+
+    valid = set(inspect.signature(cls).parameters)
+    overrides: dict[str, Any] = {}
+    for key, value in model_cfg.items():
+        if key == "name":
+            continue
+        pk = _TBLS_KEY_MAP.get(key, key)
+        if pk in valid:
+            overrides[pk] = value
+    if grid_point:
+        for key, value in grid_point.items():
+            if key in valid:
+                overrides[key] = value
+    return cls(**{**defaults, **overrides})
+
+
 def _cross_validate(
     cfg: dict[str, Any],
     x: np.ndarray,
     y: np.ndarray,
     dataset_name: str,
     key: str,
-    timestamp: str,
+    grid_point: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Run k-fold CV on one sub-dataset; return per-fold metrics."""
-    model_cfg = cfg.get("model", {})
+    model_cfg = {
+        **cfg.get("model", {}),
+        "random_state": int(cfg.get("cv", {}).get("random_state", 42)),
+    }
     pre_cfg = cfg.get("preprocess", {})
     cv_cfg = cfg.get("cv", {})
 
@@ -92,12 +141,7 @@ def _cross_validate(
         )
         x_tr, y_tr, x_te = loader.preprocess(x_train, y_train, x_test)
 
-        model = TBLS(
-            n_map_trees=int(model_cfg.get("map_num", 10)),
-            n_enhance_trees=int(model_cfg.get("enhance_num", 10)),
-            reg_param=float(model_cfg.get("reg_param", 1e-4)),
-            random_state=random_state,
-        )
+        model = _build_model(model_cfg, grid_point=grid_point)
         model.fit(x_tr, y_tr)
         y_pred = model.predict(x_te).ravel()
         y_score = model.predict_proba(x_te)
@@ -115,20 +159,74 @@ def _cross_validate(
     return fold_results
 
 
+def _rank_key(row: dict[str, Any]) -> float:
+    """Sort key for grid rows: avg_balanced_accuracy, missing/None last."""
+    value = row.get("avg_balanced_accuracy")
+    return float(value) if isinstance(value, (int, float)) else float("-inf")
+
+
+def _run_grid(
+    cfg: dict[str, Any],
+    x: np.ndarray,
+    y: np.ndarray,
+    dataset_name: str,
+    key: str,
+    model_name: str,
+    saver: TBLSResultSaver,
+) -> list[dict[str, Any]]:
+    """Sweep the hyperparameter grid for one sub-dataset; write a ranked summary."""
+    name = cfg.get("model", {}).get("name", "tbls")
+    grid_axes = TBLS_GRID if name == "tbls" else BLS_GRID
+
+    rows: list[dict[str, Any]] = []
+    for i, point in enumerate(ParameterGrid(grid_axes), start=1):
+        fold_results = _cross_validate(cfg, x, y, dataset_name, key, grid_point=point)
+        saver.save_fold_results(fold_results, sheet_name=f"Grid_{i:03d}")
+        avg = TBLSEvaluator.calculate_average_metrics(fold_results)
+        rows.append({"grid_idx": i, "model": model_name, **point, **avg})
+        logger.info(
+            "dataset=%s key=%s grid %d/%d %s acc=%.4f",
+            dataset_name,
+            key,
+            i,
+            len(ParameterGrid(grid_axes)),
+            point,
+            avg.get("avg_accuracy", float("nan")),
+        )
+
+    rows.sort(key=_rank_key, reverse=True)
+    saver.save_summary(rows, sheet_name="GridSummary")
+    winner = rows[0]
+    logger.info(
+        "dataset=%s key=%s grid winner: %s (avg_balanced_accuracy=%.4f)",
+        dataset_name,
+        key,
+        {k: winner[k] for k in winner if k in grid_axes},
+        winner.get("avg_balanced_accuracy", float("nan")),
+    )
+    return rows
+
+
 @app.command()
 def train(
     config: Path = typer.Option(Path("experiments/configs/default.yaml"), help="YAML config path."),  # noqa: B008
     dataset: str | None = typer.Option(None, help="Override config dataset name."),
-    map_num: int | None = typer.Option(None, help="Override mapping node count."),
+    model: str | None = typer.Option(None, help="Override model name (tbls|bls)."),
+    map_num: int | None = typer.Option(None, help="Override mapping node count (TBLS)."),
     n_splits: int | None = typer.Option(None, help="Override CV fold count."),
     output_dir: str | None = typer.Option(None, help="Override output directory."),
+    grid: bool = typer.Option(
+        False, "--grid", help="Sweep the hyperparameter grid and write a ranked GridSummary."
+    ),
 ) -> None:
-    """Run a TBLS training experiment from a YAML config."""
+    """Run a TBLS/BLS training experiment from a YAML config."""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
     cfg = yaml.safe_load(config.read_text())
     if dataset is not None:
         cfg["dataset"] = dataset
+    if model is not None:
+        cfg.setdefault("model", {})["name"] = model
     if map_num is not None:
         cfg.setdefault("model", {})["map_num"] = map_num
     if n_splits is not None:
@@ -144,28 +242,34 @@ def train(
 
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     out_base = Path(cfg.get("output_dir", "results_dir"))
+    model_name = cfg.get("model", {}).get("name", "tbls")
 
     subsets = _load_subsets(pkl_path)
-    logger.info("dataset=%s keys=%s", dataset_name, list(subsets.keys()))
+    logger.info(
+        "dataset=%s model=%s keys=%s grid=%s", dataset_name, model_name, list(subsets.keys()), grid
+    )
 
     for key, (x, y) in subsets.items():
         logger.info("=== %s / %s : X=%s y=%s ===", dataset_name, key, x.shape, y.shape)
-        fold_results = _cross_validate(cfg, x, y, dataset_name, key, timestamp)
-
-        result_dir = out_base / f"tbls_{dataset_name}" / key / timestamp
+        result_dir = out_base / f"{model_name}_{dataset_name}" / key / timestamp
         saver = TBLSResultSaver(
             dataset_name=dataset_name,
             timestamp=timestamp,
             key=key,
-            model_name="tbls",
+            model_name=model_name,
             feature_selection=cfg.get("preprocess", {}).get("feature_selection"),
             resampling=cfg.get("preprocess", {}).get("resampling"),
             output_dir=str(result_dir),
         )
-        saver.save_fold_results(fold_results, sheet_name="TBLS_Details")
-        avg = TBLSEvaluator.calculate_average_metrics(fold_results)
-        saver.save_summary([{"key": key, **avg}], sheet_name="TBLS_Summary")
-        logger.info("dataset=%s key=%s avg=%s", dataset_name, key, avg)
+
+        if grid:
+            _run_grid(cfg, x, y, dataset_name, key, model_name, saver)
+        else:
+            fold_results = _cross_validate(cfg, x, y, dataset_name, key)
+            saver.save_fold_results(fold_results, sheet_name=f"{model_name}_Details")
+            avg = TBLSEvaluator.calculate_average_metrics(fold_results)
+            saver.save_summary([{"key": key, **avg}], sheet_name=f"{model_name}_Summary")
+            logger.info("dataset=%s key=%s avg=%s", dataset_name, key, avg)
 
 
 if __name__ == "__main__":

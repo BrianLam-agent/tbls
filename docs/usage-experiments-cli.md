@@ -71,9 +71,11 @@ uv run --group experiments python experiments/train.py --config experiments/conf
 |---|---|---|
 | `--config PATH` | — | YAML config path (default `experiments/configs/default.yaml`). |
 | `--dataset NAME` | `dataset` | Dataset stem; loads `{data_path}/{NAME}.pkl`. |
-| `--map-num N` | `model.map_num` | `TBLS(n_map_trees=N)`. |
+| `--model NAME` | `model.name` | Model: `tbls` (default) or `bls` (`BroadLearningSystem`). |
+| `--map-num N` | `model.map_num` | `TBLS(n_map_trees=N)` (TBLS only; legacy alias for `n_map_trees`). |
 | `--n-splits N` | `cv.n_splits` | Number of `KFold` folds. |
 | `--output-dir DIR` | `output_dir` | Where Excel results are written. |
+| `--grid` | - | Sweep the hyperparameter grid (`experiments/hyperparams.py`) and write a ranked `GridSummary` sheet. |
 
 `experiments/configs/default.yaml`:
 
@@ -124,6 +126,36 @@ INFO dataset=biomedical_larger key=DM fold=1/2 acc=0.9085
 INFO dataset=biomedical_larger key=DM fold=2/2 acc=0.9166
 INFO dataset=biomedical_larger key=DM avg={'avg_accuracy': 0.9125, ...}
 ```
+
+## Hyperparameter defaults and grid search
+
+Default hyperparameters and grid-search axes live in
+`experiments/hyperparams.py` as plain, directly-editable Python dicts (not a
+YAML/CLI surface) -- edit them there to change the single-run defaults or what
+`--grid` sweeps. The grid values are a starting example, not a claim of being
+the "correct" search space.
+
+| Dict | Used by |
+|---|---|
+| `TBLS_DEFAULTS` / `BLS_DEFAULTS` | Single-run defaults merged with any config/CLI overrides for `model.name: tbls` / `bls`. |
+| `TBLS_GRID` / `BLS_GRID` | Axes swept by `--grid` for `tbls` / `bls`. |
+
+`model.name` (`tbls` or `bls`) selects the estimator; without `--grid`,
+`train.py` runs a single k-fold CV with `*_DEFAULTS` merged with the YAML
+`model` section (legacy `map_num`/`enhance_num` map to `n_map_trees`/
+`n_enhance_trees`). With `--grid`, it sweeps
+`sklearn.model_selection.ParameterGrid` of the model's grid, runs the k-fold CV
+for every combination, writes a per-configuration `Grid_{i:03d}` fold sheet and
+a `GridSummary` sheet ranked by `avg_balanced_accuracy` descending, then logs
+the winning configuration:
+
+```bash
+uv run --group experiments python experiments/train.py --grid
+uv run --group experiments python experiments/train.py --model bls --grid --n-splits 3
+```
+
+`CCA_*`/`GFCCA_*` constants are kept commented in `hyperparams.py` as reference
+for a future multi-view-fusion plan; they are not read by any code path today.
 
 ## Feature selection and resampling options
 

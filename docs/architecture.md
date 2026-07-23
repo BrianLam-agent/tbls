@@ -91,7 +91,7 @@ public API:
 |---|---|---|
 | `tbls._kernel` | `rbf_kernel` (general, caller-supplied `gamma`) and `compute_kernel_matrix`/`kernel_distance_matrix` (TBLS's adaptive-gamma variant) | `tbls.py`, `cca.py`, `gfcca.py` |
 | `tbls._ifs` | `compute_if_scores_geib` (GEIB formulation, diagonal matrix) and `compute_if_scores_simple` (membership/non-membership/hesitancy, vector) | `tbls.py`, `gfcca.py` |
-| `tbls._graph` | `build_graph_laplacian`: combined intrinsic/penalty graph Laplacian with kNN-based similarity weights | `tbls.py` |
+| `tbls._graph` | `build_graph_laplacian` (kNN intrinsic/penalty) and `build_discriminative_graph_laplacian` (label-only `Lw - beta*Lb`, ported from `GraphFuzzyKCCA`'s inline copy -- intentionally not deduplicated from `gfcca.py`) | `tbls.py` |
 
 These are deliberately **not** re-exported from `tbls/__init__.py` — they are
 implementation details that may be refactored (e.g. replaced by a Cython

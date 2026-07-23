@@ -17,7 +17,7 @@ import numpy as np
 import pytest
 from scipy.spatial.distance import cdist
 
-from tbls._graph import build_graph_laplacian
+from tbls._graph import build_discriminative_graph_laplacian, build_graph_laplacian
 from tbls._ifs import compute_if_scores_geib, compute_if_scores_simple
 from tbls._kernel import compute_kernel_matrix, kernel_distance_matrix, rbf_kernel
 
@@ -168,3 +168,50 @@ def test_rbf_kernel_gamma_scaling_is_monotonic_in_bandwidth(gamma: float) -> Non
     k = rbf_kernel(x, gamma=gamma)
     off_diag_mean = k[~np.eye(10, dtype=bool)].mean()
     assert 0.0 <= off_diag_mean <= 1.0
+
+
+def test_build_discriminative_graph_laplacian_matches_gfcca_reference() -> None:
+    """Bit-for-bit guard for the GFCCA-derived discriminative graph port.
+
+    Reimplements the label-only discriminative graph independently (same style
+    as ``test_build_graph_laplacian_bandwidth_uses_full_distance_matrix``) and
+    also checks direct agreement with ``GraphFuzzyKCCA._build_discriminative_graph``
+    -- the tuned formula this function is ported from. Catches both a divergence
+    from GFCCA and a shared bug (the independent reference uses vectorized
+    adjacency, not the same loop).
+    """
+    rng = np.random.RandomState(11)
+    n = 16
+    y = rng.randint(0, 3, size=n).astype(np.int64)
+    beta = 0.3
+
+    # Independent reference: vectorized label-only adjacency.
+    same = (y[:, None] == y[None, :]).astype(np.float64)
+    np.fill_diagonal(same, 0.0)
+    diff = 1.0 - same
+    np.fill_diagonal(diff, 0.0)
+    ww = (same + same.T) / 2
+    wb = (diff + diff.T) / 2
+    lw = np.diag(ww.sum(axis=1)) - ww
+    lb = np.diag(wb.sum(axis=1)) - wb
+
+    def normalize(lap: np.ndarray) -> np.ndarray:
+        d = np.abs(lap).sum(axis=1) + 1e-8
+        d_inv_sqrt = np.diag(1.0 / np.sqrt(d))
+        l_norm = d_inv_sqrt @ lap @ d_inv_sqrt
+        return (l_norm + l_norm.T) / 2
+
+    expected = normalize(lw) - beta * normalize(lb)
+
+    actual = build_discriminative_graph_laplacian(y, discriminative_beta=beta)
+    assert actual.shape == (n, n)
+    assert np.allclose(actual, actual.T, atol=1e-12)  # symmetric
+    assert np.allclose(actual, expected, atol=1e-12)  # matches independent reference
+
+    # Direct agreement with GraphFuzzyKCCA's own (lw, lb), combined with beta.
+    from tbls.gfcca import GraphFuzzyKCCA
+
+    gfcca = GraphFuzzyKCCA(discriminative_beta=beta)
+    lw_g, lb_g = gfcca._build_discriminative_graph(y)
+    expected_gfcca = lw_g - beta * lb_g
+    assert np.allclose(actual, expected_gfcca, atol=1e-12)

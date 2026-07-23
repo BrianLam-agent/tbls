@@ -18,6 +18,8 @@ Kernel, IFS and graph-Laplacian helpers live in the sibling private modules
 
 from __future__ import annotations
 
+from typing import Literal
+
 import numpy as np
 from numpy.typing import NDArray
 from scipy.linalg import pinv  # type: ignore[import-untyped]
@@ -106,16 +108,29 @@ class TBLS(BaseEstimator, ClassifierMixin):  # type: ignore[misc]
         tree_min_samples_split: Minimum samples to split a tree node.
         tree_max_features_ratio: RSM feature fraction per tree.
         reg_param: Ridge regularization parameter.
-        use_if_weights: If True, weight samples by GEIB IFS scores.
-        if_sigma: Scaling factor for the IFS neighborhood radius.
+        use_if_weights: If True, weight samples by IFS credibility scores
+            (formula selected by ``if_strategy``; default ``"simple"``).
+        if_sigma: Scaling factor for the IFS neighborhood radius / membership width.
         graph_gamma: Weight of graph regularization (0 disables it).
-        graph_alpha_in: Weight of the intrinsic (within-class) Laplacian.
-        graph_alpha_p: Weight of the penalty (between-class) Laplacian.
-        graph_knn: Number of nearest neighbors in the graph.
+        graph_alpha_in: Weight of the intrinsic (within-class) Laplacian (kNN graph only).
+        graph_alpha_p: Weight of the penalty (between-class) Laplacian (kNN graph only).
+        graph_knn: Number of nearest neighbors in the kNN graph.
         graph_threshold: Reserved threshold hyperparameter (unused currently).
         class_sensitive: Reserved class-sensitive flag (unused currently).
         random_state: Seed for reproducibility.
-        use_kernel_for_graph: If True, graph distances are kernel-space.
+        use_kernel_for_graph: If True, kNN-graph distances are kernel-space.
+        graph_strategy: Graph-Laplacian formula. ``"discriminative"`` (default)
+            uses GraphFuzzyKCCA's tuned label-only discriminative graph
+            (``Lw - beta * Lb``); ``"knn"`` reproduces the estimator's original
+            kNN-graph behavior unchanged.
+        if_strategy: IFS scoring formula. ``"simple"`` (default) uses
+            GraphFuzzyKCCA's tuned per-class-center + relative-neighborhood
+            formula; ``"geib"`` reproduces the original GEIB formulation.
+        discriminative_beta: Between-class penalty weight for the discriminative
+            graph (``graph_strategy="discriminative"``).
+        if_delta: Relative neighborhood threshold for the simple IFS formula
+            (``if_strategy="simple"``).
+        if_min_weight: Minimum IFS weight clip for the simple IFS formula.
     """
 
     def __init__(
@@ -137,6 +152,11 @@ class TBLS(BaseEstimator, ClassifierMixin):  # type: ignore[misc]
         class_sensitive: bool = False,
         random_state: int | None = None,
         use_kernel_for_graph: bool = True,
+        graph_strategy: Literal["discriminative", "knn"] = "discriminative",
+        if_strategy: Literal["simple", "geib"] = "simple",
+        discriminative_beta: float = 0.3,
+        if_delta: float = 0.5,
+        if_min_weight: float = 1e-4,
     ) -> None:
         self.n_map_trees = n_map_trees
         self.n_enhance_trees = n_enhance_trees
@@ -155,6 +175,11 @@ class TBLS(BaseEstimator, ClassifierMixin):  # type: ignore[misc]
         self.class_sensitive = class_sensitive
         self.random_state = random_state
         self.use_kernel_for_graph = use_kernel_for_graph
+        self.graph_strategy = graph_strategy
+        self.if_strategy = if_strategy
+        self.discriminative_beta = discriminative_beta
+        self.if_delta = if_delta
+        self.if_min_weight = if_min_weight
         self.fitted_ = False
 
     def _build_mapping_trees(
@@ -274,28 +299,58 @@ class TBLS(BaseEstimator, ClassifierMixin):  # type: ignore[misc]
         # Random number generator (RandomState works for both int and None).
         rng = np.random.RandomState(self.random_state)
 
-        # Compute kernel matrix once for IFS and graph.
-        k_mat: NDArray[np.float64] | None = None
-        if self.use_if_weights or (self.graph_gamma > 0 and self.use_kernel_for_graph):
-            k_mat = _kernel.compute_kernel_matrix(x_scaled)
+        # Compute kernel matrix only for the branches that need it: the GEIB
+        # IFS formula and the kNN graph (when use_kernel_for_graph). The
+        # discriminative graph and the simple IFS formula are label/Euclidean
+        # only and do not need a kernel.
+        need_kernel = (self.use_if_weights and self.if_strategy == "geib") or (
+            self.graph_gamma > 0 and self.graph_strategy == "knn" and self.use_kernel_for_graph
+        )
+        k_mat = _kernel.compute_kernel_matrix(x_scaled) if need_kernel else None
 
         # Intuitionistic fuzzy weights.
         if self.use_if_weights:
-            s_mat = _ifs.compute_if_scores_geib(x_scaled, y_enc, K=k_mat, if_sigma=self.if_sigma)
+            if self.if_strategy == "simple":
+                s_vec = _ifs.compute_if_scores_simple(
+                    x_scaled,
+                    y_enc,
+                    sigma_if=self.if_sigma,
+                    delta_if=self.if_delta,
+                    min_weight=self.if_min_weight,
+                )
+                s_mat = np.diag(s_vec)
+            elif self.if_strategy == "geib":
+                s_mat = _ifs.compute_if_scores_geib(
+                    x_scaled, y_enc, K=k_mat, if_sigma=self.if_sigma
+                )
+            else:
+                raise ValueError(
+                    f"Unsupported if_strategy: {self.if_strategy!r}. Expected 'simple' or 'geib'."
+                )
         else:
             s_mat = None
 
         # Graph Laplacian.
         if self.graph_gamma > 0:
-            l_mat = _graph.build_graph_laplacian(
-                x_scaled,
-                y_enc,
-                K=k_mat,
-                graph_alpha_in=self.graph_alpha_in,
-                graph_alpha_p=self.graph_alpha_p,
-                graph_knn=self.graph_knn,
-                use_kernel=self.use_kernel_for_graph,
-            )
+            if self.graph_strategy == "discriminative":
+                l_mat = _graph.build_discriminative_graph_laplacian(
+                    y_enc, discriminative_beta=self.discriminative_beta
+                )
+            elif self.graph_strategy == "knn":
+                l_mat = _graph.build_graph_laplacian(
+                    x_scaled,
+                    y_enc,
+                    K=k_mat,
+                    graph_alpha_in=self.graph_alpha_in,
+                    graph_alpha_p=self.graph_alpha_p,
+                    graph_knn=self.graph_knn,
+                    use_kernel=self.use_kernel_for_graph,
+                )
+            else:
+                raise ValueError(
+                    f"Unsupported graph_strategy: {self.graph_strategy!r}. "
+                    "Expected 'discriminative' or 'knn'."
+                )
         else:
             l_mat = None
 

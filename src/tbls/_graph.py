@@ -106,3 +106,57 @@ def build_graph_laplacian(
 
     laplacian: NDArray[np.float64] = graph_alpha_in * l_in - graph_alpha_p * l_p
     return laplacian
+
+
+def build_discriminative_graph_laplacian(
+    y: NDArray[np.int64],
+    discriminative_beta: float = 0.3,
+) -> NDArray[np.float64]:
+    """Label-only discriminative graph Laplacian ``L = Lw - beta * Lb``.
+
+    Ported unchanged from
+    :meth:`tbls.gfcca.GraphFuzzyKCCA._build_discriminative_graph`: a
+    fully-connected (no kNN) same-class/different-class adjacency, each
+    Laplacian symmetrically normalized by its own L1-degree
+    (``D = diag(abs(L).sum(axis=1) + 1e-8)``) -- a different normalization
+    convention than :func:`build_graph_laplacian`'s
+    ``I - D^{-1/2} W D^{-1/2}``; kept exactly as GFCCA has it, not reconciled
+    with the other convention.
+
+    Args:
+        y: Integer class labels of shape ``(n,)``.
+        discriminative_beta: Between-class penalty weight.
+
+    Returns:
+        Combined Laplacian ``Lw_normalized - beta * Lb_normalized`` of shape
+        ``(n, n)``.
+    """
+
+    def normalize(lap: NDArray[np.float64]) -> NDArray[np.float64]:
+        d = np.abs(lap).sum(axis=1) + 1e-8
+        d_inv_sqrt = np.diag(1.0 / np.sqrt(d))
+        l_norm = d_inv_sqrt @ lap @ d_inv_sqrt
+        return (l_norm + l_norm.T) / 2
+
+    n = len(y)
+    ww = np.zeros((n, n), dtype=np.float64)
+    wb = np.zeros((n, n), dtype=np.float64)
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                continue
+            if y[i] == y[j]:
+                ww[i, j] = 1
+            else:
+                wb[i, j] = 1
+    # Symmetrize (the loop already fills both triangles; kept to match GFCCA).
+    ww = (ww + ww.T) / 2
+    wb = (wb + wb.T) / 2
+
+    dw = np.diag(ww.sum(axis=1))
+    db = np.diag(wb.sum(axis=1))
+    lw = dw - ww
+    lb = db - wb
+
+    laplacian: NDArray[np.float64] = normalize(lw) - discriminative_beta * normalize(lb)
+    return laplacian

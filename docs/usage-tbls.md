@@ -56,6 +56,11 @@ output).
 | `graph_knn` | `10` | Number of nearest neighbors used to build the similarity graph. `<= 0` means fully connected. |
 | `use_kernel_for_graph` | `True` | If `True`, graph distances are computed in RBF-kernel space rather than raw Euclidean space. |
 | `random_state` | `None` | Seed for bootstrap sampling, feature subspace selection, and tree seeding. |
+| `graph_strategy` | `"discriminative"` | Graph-Laplacian formula: `"discriminative"` (default, `GraphFuzzyKCCA`'s tuned label-only `Lw - beta*Lb`) or `"knn"` (the original kNN-graph). |
+| `if_strategy` | `"simple"` | IFS scoring formula: `"simple"` (default, `GraphFuzzyKCCA`'s tuned per-class-center + relative-neighborhood) or `"geib"` (the original GEIB formulation). |
+| `discriminative_beta` | `0.3` | Between-class penalty weight for `graph_strategy="discriminative"`. |
+| `if_delta` | `0.5` | Relative neighborhood threshold for `if_strategy="simple"`. |
+| `if_min_weight` | `1e-4` | Minimum IFS weight clip for `if_strategy="simple"`. |
 
 `graph_threshold` and `class_sensitive` are reserved constructor parameters
 kept for `sklearn.base.clone()`/`get_params()` compatibility but are not
@@ -85,6 +90,30 @@ they usually make little difference — the sklearn-compatibility test suite
 uses them primarily as a numerical-fidelity regression check (see
 [`architecture.md`](./architecture.md#4-package-internals-shared-modules)),
 not because they are always beneficial.
+
+## Graph and IFS strategy
+
+`TBLS` ships two graph-Laplacian formulas and two IFS-scoring formulas,
+selectable independently. The defaults reproduce `GraphFuzzyKCCA`'s tuned
+formulas (the same math, already verified inside `tbls.gfcca`); the
+alternatives reproduce `TBLS`'s original pre-strategy-switch behavior exactly.
+
+| Strategy | default | alternative |
+|---|---|---|
+| `graph_strategy` | `"discriminative"` -- label-only discriminative graph `L = Lw - beta*Lb` (no kNN, no distances), ported from `GraphFuzzyKCCA`. | `"knn"` -- the original kNN-graph `L = alpha_in*L_in - alpha_p*L_p` (`_graph.build_graph_laplacian`). |
+| `if_strategy` | `"simple"` -- per-class Euclidean center distance + relative-neighborhood IFS (`_ifs.compute_if_scores_simple`). | `"geib"` -- the original GEIB formulation in kernel space (`_ifs.compute_if_scores_geib`). |
+
+```python
+# Default (tuned GFCCA formulas):
+TBLS(use_if_weights=True, graph_gamma=0.1)
+# Original TBLS behavior:
+TBLS(use_if_weights=True, graph_gamma=0.1, graph_strategy="knn", if_strategy="geib")
+```
+
+`discriminative_beta`, `if_delta`, and `if_min_weight` parameterize the default
+(`"discriminative"`/`"simple"`) formulas; they are ignored when the
+corresponding strategy is set to `"knn"`/`"geib"`. An unsupported strategy
+string raises `ValueError` on `fit`.
 
 ## Incremental layers
 

@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+import sys
+
 import numpy as np
 import pytest
 from sklearn.datasets import make_classification
+
+# experiments/train.py imports its sibling modules script-style
+# (`from dataprocess import ...`), so make experiments/ importable as a
+# top-level path for tests that import experiments.train.
+_EXPERIMENTS_DIR = str(Path(__file__).resolve().parent.parent / "experiments")
+if _EXPERIMENTS_DIR not in sys.path:
+    sys.path.insert(0, _EXPERIMENTS_DIR)
 
 
 @pytest.fixture
