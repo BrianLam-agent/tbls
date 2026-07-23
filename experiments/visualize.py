@@ -235,17 +235,21 @@ def plot_grid_summary(fold_df: pd.DataFrame, out_dir: Path) -> Path | None:
     return path
 
 
-def _load_predictions(run_dir: Path, predictions_file: str) -> dict[str, np.ndarray]:
-    """Load the ``.npz`` side-file for ``predictions_file`` under ``run_dir``.
+def _load_predictions(logs_dir: Path, predictions_file: str) -> dict[str, np.ndarray]:
+    """Load the ``.npz`` side-file for ``predictions_file`` under ``logs_dir``.
 
     Args:
-        run_dir: The run directory whose ``logs/`` holds the side-file.
+        logs_dir: The specific ``logs/`` directory that holds the side-file --
+            i.e. the parent directory of the ``.jsonl`` file the event was read
+            from, NOT necessarily the top-level ``--dir`` passed on the CLI
+            (which may be a shallower ancestor when ``--dir`` spans multiple
+            timestamped runs via the recursive ``**/logs/*.jsonl`` discovery).
         predictions_file: The side-file basename recorded in the event.
 
     Returns:
         A ``{key: array}`` mapping (e.g. ``{"DM_fold1_y_true": array, ...}``).
     """
-    npz_path = run_dir / "logs" / predictions_file
+    npz_path = logs_dir / predictions_file
     with np.load(npz_path) as data:
         return {k: data[k] for k in data.files}
 
@@ -340,7 +344,7 @@ def _cohort_predictions(
                 cohort = extra.get("cohort_key", "?")
                 fold = int(extra["fold"])
                 try:
-                    arrays = _load_predictions(run_dir, pf)
+                    arrays = _load_predictions(jl.parent, pf)
                 except FileNotFoundError:
                     continue
                 key = run_tag, cohort
