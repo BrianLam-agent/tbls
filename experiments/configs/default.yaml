@@ -1,0 +1,20 @@
+# Default TBLS training config (see docs/design.md §10).
+# Values mirror the legacy main.py::parse_arguments() defaults.
+dataset: biomedical_larger
+data_path: experiments/datasets/
+
+model:
+  name: tbls
+  map_num: 10
+  enhance_num: 10
+  reg_param: 2.0e-15
+
+preprocess:
+  feature_selection: lasso
+  resampling: smote
+
+cv:
+  n_splits: 5
+  random_state: 42
+
+output_dir: results_dir

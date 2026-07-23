@@ -90,6 +90,13 @@ ignore = [
 "tests/**" = ["D", "ARG001", "ARG002"]
 # CLI: typer options accessed via signature defaults, not always "used" directly.
 "experiments/**" = ["D", "ARG001"]
+# Legacy comparison-algorithm factory migrated verbatim from othercode/ (not part
+# of the published package). These rules flag external-interface conformations
+# that must not be changed in working legacy code: sklearn get_params `deep`
+# (ARG002), PyTorch `import ... as F` (N812), public class names (N801),
+# availability-check imports after try/except (E402, F401). All other
+# (mechanical) violations are fixed.
+"experiments/classifiers.py" = ["ARG002", "N801", "N812", "E402", "F401"]
 
 [lint.isort]
 case-sensitive = true
