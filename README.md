@@ -44,6 +44,11 @@ print(model.predict_proba(X[:5]))
 print(cross_val_score(model, X, y, cv=3))
 ```
 
+For runnable worked examples against the real biomedical dataset (a single
+TBLS run, and a TBLS `--grid` hyperparameter sweep), see
+[`examples/`](examples/README.md). They call the same experiment internals as
+the training CLI and finish in seconds.
+
 ## What's in the box
 
 | Component | What it is |
