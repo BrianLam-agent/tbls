@@ -7,9 +7,9 @@ name = "tbls"
 version = "0.1.0"
 description = "Tree-based Broad Learning System for classification"
 readme = "README.md"
-license = "MIT"
+license = "Apache-2.0"
 requires-python = ">=3.10"
-authors = [{ name = "TBD" }]
+authors = [{ name = "BrianLam" }]
 keywords = [
     "machine-learning",
     "broad-learning-system",
@@ -20,7 +20,7 @@ keywords = [
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -31,9 +31,10 @@ classifiers = [
 dependencies = ["numpy", "scipy", "scikit-learn"]
 
 [project.urls]
-Homepage = "https://github.com/TBD/tbls"
-Repository = "https://github.com/TBD/tbls"
-Issues = "https://github.com/TBD/tbls/issues"
+Homepage = "https://github.com/BrianLam-agent/tbls"
+Repository = "https://github.com/BrianLam-agent/tbls"
+Issues = "https://github.com/BrianLam-agent/tbls/issues"
+Changelog = "https://github.com/BrianLam-agent/tbls/releases"
 
 [project.optional-dependencies]
 cython = ["cython"]
@@ -58,7 +59,7 @@ packages = ["src/tbls"]
 include = ["src/tbls", "tests"]
 
 [tool.mypy]
-# NOTE: bumped from 3.10 (design.md §11) to 3.13 because numpy 2.5's bundled
+# NOTE: bumped from 3.10 (the package's runtime floor) to 3.13 because numpy 2.5's bundled
 # stubs use PEP 695 `type` statements that require Python 3.12+ to parse. The
 # package's `requires-python = ">=3.10"` runtime floor is still enforced by the
 # CI test matrix (3.10–3.13); this only sets mypy's parsing target.
