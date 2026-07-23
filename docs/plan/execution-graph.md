@@ -16,7 +16,7 @@ accepted plans 01/02).
 | `04-ablation-variants-and-vectorization.md` | `04-ablation-vectorize` | none (touches same files as 01, already accepted) | `ACCEPTED` |
 | `05-experiments-code-hygiene.md` | `05-experiments-hygiene` | none | `ACCEPTED` |
 | `06-metrics-logging-visualization.md` | `06-metrics-logging-viz` | `05-experiments-hygiene` (sequencing preference, not a correctness dependency) | `ACCEPTED` |
-| `07-fix-ifs-simple-membership-bandwidth-collapse.md` | `07-ifs-simple-fix` | none | `IMPLEMENTED` |
+| `07-fix-ifs-simple-membership-bandwidth-collapse.md` | `07-ifs-simple-fix` | none | `ACCEPTED` |
 
 All four `ACCEPTED` as of `c8fae94`. See `docs/plan/reports/0{3,4,5,6}-*.md`
 (implementer) and `docs/plan/reports/0{3,4,6}-*-review.md` (reviewer) for
