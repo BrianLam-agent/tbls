@@ -215,3 +215,218 @@ def test_build_discriminative_graph_laplacian_matches_gfcca_reference() -> None:
     lw_g, lb_g = gfcca._build_discriminative_graph(y)
     expected_gfcca = lw_g - beta * lb_g
     assert np.allclose(actual, expected_gfcca, atol=1e-12)
+
+
+def test_build_discriminative_graph_laplacian_vectorized_matches_loop() -> None:
+    """Bit-for-bit regression: vectorized adjacency == old nested-loop adjacency.
+
+    Reimplements the pre-vectorization nested ``for i, j`` adjacency loop (the
+    code removed in Plan 04) inline and asserts the current vectorized
+    :func:`build_discriminative_graph_laplacian` matches it to ``atol=1e-12``.
+    """
+    rng = np.random.RandomState(21)
+    n = 19
+    y = rng.randint(0, 4, size=n).astype(np.int64)
+    beta = 0.37
+
+    # OLD loop-based adjacency.
+    ww = np.zeros((n, n), dtype=np.float64)
+    wb = np.zeros((n, n), dtype=np.float64)
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                continue
+            if y[i] == y[j]:
+                ww[i, j] = 1
+            else:
+                wb[i, j] = 1
+    ww = (ww + ww.T) / 2
+    wb = (wb + wb.T) / 2
+    dw = np.diag(ww.sum(axis=1))
+    db = np.diag(wb.sum(axis=1))
+    lw = dw - ww
+    lb = db - wb
+
+    def normalize(lap: np.ndarray) -> np.ndarray:
+        d = np.abs(lap).sum(axis=1) + 1e-8
+        d_inv_sqrt = np.diag(1.0 / np.sqrt(d))
+        l_norm = d_inv_sqrt @ lap @ d_inv_sqrt
+        return (l_norm + l_norm.T) / 2
+
+    expected = normalize(lw) - beta * normalize(lb)
+    actual = build_discriminative_graph_laplacian(y, discriminative_beta=beta)
+    assert np.allclose(actual, expected, atol=1e-12)
+
+
+def test_gfcca_build_discriminative_graph_vectorized_matches_loop() -> None:
+    """Bit-for-bit regression: vectorized GFCCA graph == old nested-loop graph."""
+    from tbls.gfcca import GraphFuzzyKCCA
+
+    rng = np.random.RandomState(22)
+    n = 17
+    y = rng.randint(0, 3, size=n).astype(np.int64)
+
+    ww = np.zeros((n, n), dtype=np.float64)
+    wb = np.zeros((n, n), dtype=np.float64)
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                continue
+            if y[i] == y[j]:
+                ww[i, j] = 1
+            else:
+                wb[i, j] = 1
+    ww = (ww + ww.T) / 2
+    wb = (wb + wb.T) / 2
+    dw = np.diag(ww.sum(axis=1))
+    db = np.diag(wb.sum(axis=1))
+    lw = dw - ww
+    lb = db - wb
+
+    def normalize(lap: np.ndarray) -> np.ndarray:
+        d = np.abs(lap).sum(axis=1) + 1e-8
+        d_inv_sqrt = np.diag(1.0 / np.sqrt(d))
+        l_norm = d_inv_sqrt @ lap @ d_inv_sqrt
+        return (l_norm + l_norm.T) / 2
+
+    exp_lw, exp_lb = normalize(lw), normalize(lb)
+    act_lw, act_lb = GraphFuzzyKCCA()._build_discriminative_graph(y)
+    assert np.allclose(act_lw, exp_lw, atol=1e-12)
+    assert np.allclose(act_lb, exp_lb, atol=1e-12)
+
+
+def test_compute_if_scores_geib_vectorized_matches_loop() -> None:
+    """Bit-for-bit regression: vectorized GEIB IFS == old loop-based GEIB IFS.
+
+    Reimplements ``compute_if_scores_geib`` with the pre-vectorization
+    ``lambda_[i] = np.mean(y[neighbors] != y[i])`` neighbor loop (everything
+    else identical, same ``K``) and asserts the current vectorized version
+    matches it to ``atol=1e-12``.
+    """
+    rng = np.random.RandomState(23)
+    n = 24
+    x = rng.normal(size=(n, 3))
+    y = np.array([0] * 8 + [1] * 8 + [2] * 8, dtype=np.int64)
+    if_sigma = 0.8
+
+    k = compute_kernel_matrix(x)
+    classes = np.unique(y)
+    class_idx = {c: np.where(y == c)[0] for c in classes}
+    class_cnt = {c: len(idx) for c, idx in class_idx.items()}
+    class_sum_k = {c: k[:, idx].sum(axis=1) for c, idx in class_idx.items()}
+    class_mean_k: dict[int, float] = {}
+    for c, idx in class_idx.items():
+        if len(idx) > 0:
+            k_cc = k[np.ix_(idx, idx)]
+            class_mean_k[c] = float(k_cc.mean())
+        else:
+            class_mean_k[c] = 0.0
+
+    mu = np.zeros(n, dtype=np.float64)
+    epsilon = 1e-8
+    for c in classes:
+        idx_c = class_idx[c]
+        nc = class_cnt[c]
+        dist_sq = np.diag(k)[idx_c] - 2.0 / nc * class_sum_k[c][idx_c] + class_mean_k[c]
+        dist_sq = np.maximum(dist_sq, 0)
+        dist = np.sqrt(dist_sq)
+        r_c = dist.max() if len(dist) > 0 else 0.0
+        if r_c < epsilon:
+            mu[idx_c] = 1.0
+        else:
+            mu[idx_c] = 1.0 - dist / (r_c + epsilon)
+    mu = np.clip(mu, 0.0, 1.0)
+
+    kernel_dists = kernel_distance_matrix(k)
+    off_diag = kernel_dists[~np.eye(n, dtype=bool)]
+    median_dist = np.median(off_diag) if len(off_diag) > 0 else 1.0
+    sigma = if_sigma * median_dist
+
+    # OLD loop-based neighbor-mismatch rate.
+    lambda_ = np.zeros(n, dtype=np.float64)
+    for i in range(n):
+        neighbors = np.where((kernel_dists[i] <= sigma) & (np.arange(n) != i))[0]
+        if len(neighbors) > 0:
+            lambda_[i] = np.mean(y[neighbors] != y[i])
+    nu = (1.0 - mu) * lambda_
+    violation = mu + nu > 1.0
+    if np.any(violation):
+        nu[violation] = 1.0 - mu[violation] - 1e-8
+    nu = np.clip(nu, 0.0, 1.0)
+
+    scores = np.zeros(n, dtype=np.float64)
+    for i in range(n):
+        if nu[i] < 1e-12:
+            scores[i] = mu[i]
+        elif mu[i] <= nu[i]:
+            scores[i] = 0.0
+        else:
+            scores[i] = (1.0 - nu[i]) / (2.0 - mu[i] - nu[i])
+    scores = np.clip(scores, 1e-6, 1.0)
+    expected = np.diag(scores)
+
+    actual = compute_if_scores_geib(x, y, K=k, if_sigma=if_sigma)
+    assert np.allclose(actual, expected, atol=1e-12)
+
+
+def test_compute_if_scores_simple_vectorized_matches_loop() -> None:
+    """Bit-for-bit regression: vectorized simple IFS == old loop-based simple IFS.
+
+    Reimplements ``compute_if_scores_simple`` with the pre-vectorization
+    ``rho[i] = np.mean(y[neigh] != y[i])`` neighbor loop (strict-``<``
+    threshold, self excluded) and asserts the current vectorized version
+    matches it to ``atol=1e-12``.
+    """
+    rng = np.random.RandomState(24)
+    n = 22
+    a = rng.normal(size=(n, 3))
+    y = np.array([0] * 7 + [1] * 8 + [2] * 7, dtype=np.int64)
+    sigma_if = 1.1
+    delta_if = 0.45
+    min_weight = 1e-4
+
+    classes = np.unique(y)
+    centers: dict[int, np.ndarray] = {}
+    for c in classes:
+        idx_c = y == c
+        centers[c] = a[idx_c].mean(axis=0)
+
+    mu = np.zeros(n, dtype=np.float64)
+    for i in range(n):
+        ci = y[i]
+        dist = np.linalg.norm(a[i] - centers[ci])
+        mu[i] = np.exp(-(dist**2) / (2 * sigma_if**2))
+    mu = np.clip(mu, 0.0, 1.0)
+
+    dists = cdist(a, a, "euclidean")
+    off_diag = dists[~np.eye(n, dtype=bool)]
+    median_dist = np.median(off_diag) if off_diag.size > 0 else 1.0
+    threshold = median_dist * delta_if
+
+    # OLD loop-based neighbor-mismatch rate.
+    rho = np.zeros(n, dtype=np.float64)
+    for i in range(n):
+        neigh = np.where(dists[i] < threshold)[0]
+        neigh = neigh[neigh != i]
+        if len(neigh) > 0:
+            rho[i] = np.mean(y[neigh] != y[i])
+        else:
+            rho[i] = 0.0
+
+    nu = (1.0 - mu) * rho
+    nu = np.clip(nu, 0.0, 1.0)
+
+    s = np.ones(n, dtype=np.float64)
+    for i in range(n):
+        if nu[i] == 0:
+            s[i] = mu[i]
+        elif mu[i] <= nu[i]:
+            s[i] = 0.0
+        else:
+            s[i] = (1.0 - nu[i]) / (2.0 - mu[i] - nu[i])
+    expected = np.clip(s, min_weight, 1.0)
+
+    actual = compute_if_scores_simple(
+        a, y, sigma_if=sigma_if, delta_if=delta_if, min_weight=min_weight
+    )
+    assert np.allclose(actual, expected, atol=1e-12)

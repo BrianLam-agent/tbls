@@ -138,20 +138,16 @@ def build_discriminative_graph_laplacian(
         l_norm = d_inv_sqrt @ lap @ d_inv_sqrt
         return (l_norm + l_norm.T) / 2
 
-    n = len(y)
-    ww = np.zeros((n, n), dtype=np.float64)
-    wb = np.zeros((n, n), dtype=np.float64)
-    for i in range(n):
-        for j in range(n):
-            if i == j:
-                continue
-            if y[i] == y[j]:
-                ww[i, j] = 1
-            else:
-                wb[i, j] = 1
-    # Symmetrize (the loop already fills both triangles; kept to match GFCCA).
-    ww = (ww + ww.T) / 2
-    wb = (wb + wb.T) / 2
+    # Label-only same/different-class adjacency, vectorized. `same` is
+    # symmetric by construction (y[i]==y[j] iff y[j]==y[i]), so the
+    # `(x + x.T) / 2` symmetrization below is an exact no-op -- kept for
+    # defensive clarity / consistency with the pre-vectorization shape.
+    same = (y[:, None] == y[None, :]).astype(np.float64)
+    np.fill_diagonal(same, 0.0)
+    diff = 1.0 - same
+    np.fill_diagonal(diff, 0.0)
+    ww = (same + same.T) / 2
+    wb = (diff + diff.T) / 2
 
     dw = np.diag(ww.sum(axis=1))
     db = np.diag(wb.sum(axis=1))

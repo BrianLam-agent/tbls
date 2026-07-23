@@ -86,11 +86,19 @@ def compute_if_scores_geib(
     median_dist = np.median(off_diag) if len(off_diag) > 0 else 1.0
     sigma = if_sigma * median_dist
 
-    lambda_ = np.zeros(n, dtype=np.float64)
-    for i in range(n):
-        neighbors = np.where((kernel_dists[i] <= sigma) & (np.arange(n) != i))[0]
-        if len(neighbors) > 0:
-            lambda_[i] = np.mean(y[neighbors] != y[i])
+    # Vectorized neighbor-mismatch rate: lambda_[i] = mean(y[neighbors] != y[i])
+    # over neighbors within `sigma` (excluding self). `np.divide(..., where=...)`
+    # reproduces the loop's "0.0 if no neighbors" branch without a 0/0 warning.
+    neighbor_mask = (kernel_dists <= sigma) & ~np.eye(n, dtype=bool)
+    diff = y[:, None] != y[None, :]
+    neighbor_counts = neighbor_mask.sum(axis=1)
+    mismatch_counts = (neighbor_mask & diff).sum(axis=1)
+    lambda_ = np.divide(
+        mismatch_counts,
+        neighbor_counts,
+        out=np.zeros(n, dtype=np.float64),
+        where=neighbor_counts > 0,
+    )
     nu = (1.0 - mu) * lambda_
     # Enforce mu + nu <= 1
     violation = mu + nu > 1.0
@@ -155,15 +163,20 @@ def compute_if_scores_simple(
     median_dist = np.median(off_diag) if off_diag.size > 0 else 1.0
     threshold = median_dist * delta_if
 
-    rho = np.zeros(n, dtype=np.float64)
-    for i in range(n):
-        # Neighbors strictly closer than the threshold (excluding self).
-        neigh = np.where(dists[i] < threshold)[0]
-        neigh = neigh[neigh != i]
-        if len(neigh) > 0:
-            rho[i] = np.mean(y[neigh] != y[i])
-        else:
-            rho[i] = 0.0
+    # Vectorized neighbor-mismatch rate: rho[i] = mean(y[neighbors] != y[i])
+    # over neighbors strictly closer than `threshold` (excluding self). Strict
+    # inequality matches the loop; `np.divide(..., where=...)` reproduces the
+    # "0.0 if no neighbors" branch without a 0/0 warning.
+    neighbor_mask = (dists < threshold) & ~np.eye(n, dtype=bool)
+    diff = y[:, None] != y[None, :]
+    neighbor_counts = neighbor_mask.sum(axis=1)
+    mismatch_counts = (neighbor_mask & diff).sum(axis=1)
+    rho = np.divide(
+        mismatch_counts,
+        neighbor_counts,
+        out=np.zeros(n, dtype=np.float64),
+        where=neighbor_counts > 0,
+    )
 
     nu = (1.0 - mu) * rho
     nu = np.clip(nu, 0.0, 1.0)
