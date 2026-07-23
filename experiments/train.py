@@ -32,7 +32,15 @@ import yaml
 
 from dataprocess import DataLoader
 from evaluate import TBLSEvaluator, TBLSResultSaver
-from hyperparams import BLS_DEFAULTS, BLS_GRID, TBLS_DEFAULTS, TBLS_GRID
+from hyperparams import (
+    BLS_DEFAULTS,
+    BLS_GRID,
+    CCA_DEFAULTS,
+    GFCCA_DEFAULTS,
+    TBLS_DEFAULTS,
+    TBLS_GRID,
+)
+from multiview import MultiViewDataLoader, fuse_views, load_multiview_cohort
 from tbls import TBLS, BroadLearningSystem
 
 app = typer.Typer(add_completion=False)
@@ -40,6 +48,11 @@ logger = logging.getLogger(__name__)
 
 # Legacy YAML config keys -> TBLS constructor parameter names.
 _TBLS_KEY_MAP = {"map_num": "n_map_trees", "enhance_num": "n_enhance_trees"}
+
+# A cohort is either single-view (np.ndarray X, np.ndarray y) or multi-view
+# (dict[str, np.ndarray] views, np.ndarray y); tagged so the per-fold body can
+# branch without re-inspecting the raw pkl.
+CohortData = tuple[np.ndarray, np.ndarray] | tuple[dict[str, np.ndarray], np.ndarray, str]
 
 
 def _load_subsets(pkl_path: Path) -> dict[str, tuple[np.ndarray, np.ndarray]]:
@@ -70,6 +83,57 @@ def _load_subsets(pkl_path: Path) -> dict[str, tuple[np.ndarray, np.ndarray]]:
         x = np.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
         subsets[key] = (x, y)
     return subsets
+
+
+def _load_cohorts(pkl_path: Path) -> dict[str, CohortData]:
+    """Load every cohort, tagged single-view or multi-view by pkl content.
+
+    Each cohort key resolves to exactly one of:
+    - single-view: ``(X, y)`` where ``X`` is a ``(n, f)`` matrix;
+    - multi-view:  ``(views, y, "multiview")`` where ``views`` is a
+      ``{name: (n, f_name)}`` dict.
+
+    A cohort dict with both/neither of ``"data"``/``"views"`` raises
+    ``ValueError`` (via :func:`load_multiview_cohort` for the multi-view side;
+    single-view keys keep the existing ``"data"`` contract).
+    """
+    data = joblib.load(pkl_path)
+    if isinstance(data, dict) and "data" in data and "target" in data:
+        items: dict[str, object] = {"single": data}
+    elif isinstance(data, dict):
+        items = {
+            k: v
+            for k, v in data.items()
+            if isinstance(v, dict) and ("data" in v or "views" in v) and "target" in v
+        }
+    else:
+        raise TypeError(f"Unsupported pkl top-level type: {type(data)}")
+
+    cohorts: dict[str, CohortData] = {}
+    for key, sub in items.items():
+        if "views" in sub:
+            views, y = load_multiview_cohort(pkl_path, key)
+            cohorts[key] = (views, y, "multiview")
+        else:
+            x = np.asarray(sub["data"], dtype=np.float64)
+            y = np.asarray(sub["target"]).ravel()
+            valid = y != -1
+            x, y = x[valid], y[valid]
+            y = (y > 0).astype(np.int64)
+            x = np.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
+            cohorts[key] = (x, y)
+    return cohorts
+
+
+def _fusion_kwargs(cfg: dict[str, Any], method: str) -> dict[str, Any]:
+    """Build fusion kwargs: ``CCA_DEFAULTS``/``GFCCA_DEFAULTS`` + ``fusion`` overrides."""
+    defaults = GFCCA_DEFAULTS if method == "gfcca" else CCA_DEFAULTS
+    fusion_cfg = dict(cfg.get("fusion", {}))
+    fusion_cfg.pop("method", None)
+    fusion_cfg.pop("view_groups", None)
+    # Only keep kwargs the build fn actually accepts.
+    valid = set(defaults)
+    return {**defaults, **{k: v for k, v in fusion_cfg.items() if k in valid}}
 
 
 def _build_model(
@@ -110,36 +174,66 @@ def _build_model(
 
 def _cross_validate(
     cfg: dict[str, Any],
-    x: np.ndarray,
-    y: np.ndarray,
+    cohort: CohortData,
     dataset_name: str,
     key: str,
     grid_point: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    """Run k-fold CV on one sub-dataset; return per-fold metrics."""
+    """Run k-fold CV on one cohort; return per-fold metrics.
+
+    Branches on single-view ``(X, y)`` vs multi-view ``(views, y, "multiview")``
+    cohorts. For multi-view, every view and ``y`` are split by the same fold
+    indices, per-view-preprocessed + row-aligned-resampled via
+    :class:`MultiViewDataLoader`, then fused via :func:`fuse_views` before the
+    model fit - see ``docs/usage-multiview-fusion.md``.
+    """
     model_cfg = {
         **cfg.get("model", {}),
         "random_state": int(cfg.get("cv", {}).get("random_state", 42)),
     }
     pre_cfg = cfg.get("preprocess", {})
     cv_cfg = cfg.get("cv", {})
+    fusion_cfg = cfg.get("fusion", {})
 
     n_splits = int(cv_cfg.get("n_splits", 5))
     random_state = int(cv_cfg.get("random_state", 42))
     kf = KFold(n_splits=n_splits, shuffle=True, random_state=random_state)
 
+    is_multiview = len(cohort) == 3 and cohort[2] == "multiview"
+    if is_multiview:
+        views: dict[str, np.ndarray] = cohort[0]
+        y: np.ndarray = cohort[1]
+        split_array = next(iter(views.values()))
+    else:
+        x: np.ndarray = cohort[0]
+        y = cohort[1]
+        split_array = x
+    method = fusion_cfg.get("method", "gfcca")
+    view_groups = fusion_cfg.get("view_groups")
+    fkwargs = _fusion_kwargs(cfg, method)
+
     fold_results: list[dict[str, Any]] = []
-    for fold, (train_idx, test_idx) in enumerate(kf.split(x), start=1):
-        x_train, x_test = x[train_idx], x[test_idx]
+    for fold, (train_idx, test_idx) in enumerate(kf.split(split_array), start=1):
         y_train, y_test = y[train_idx], y[test_idx]
 
-        # Per-fold DataLoader so preprocessing is fit on the train split only.
-        loader = DataLoader(
-            dataset_name=dataset_name,
-            feature_selection=pre_cfg.get("feature_selection"),
-            resampling=pre_cfg.get("resampling"),
-        )
-        x_tr, y_tr, x_te = loader.preprocess(x_train, y_train, x_test)
+        if is_multiview:
+            mv_train = {name: xv[train_idx] for name, xv in views.items()}
+            mv_test = {name: xv[test_idx] for name, xv in views.items()}
+            mv_loader = MultiViewDataLoader(
+                feature_selection=pre_cfg.get("feature_selection"),
+                resampling=pre_cfg.get("resampling"),
+                fusion_reference_view=pre_cfg.get("fusion_reference_view"),
+            )
+            pv_train, y_tr, pv_test = mv_loader.preprocess_views(mv_train, y_train, mv_test)
+            x_tr, x_te = fuse_views(pv_train, y_tr, pv_test, method, view_groups, **fkwargs)
+        else:
+            # Per-fold DataLoader so preprocessing is fit on the train split only.
+            loader = DataLoader(
+                dataset_name=dataset_name,
+                feature_selection=pre_cfg.get("feature_selection"),
+                resampling=pre_cfg.get("resampling"),
+            )
+            x_tr, y_tr, x_te = loader.preprocess(x[train_idx], y_train, x[test_idx])
 
         model = _build_model(model_cfg, grid_point=grid_point)
         model.fit(x_tr, y_tr)
@@ -167,20 +261,24 @@ def _rank_key(row: dict[str, Any]) -> float:
 
 def _run_grid(
     cfg: dict[str, Any],
-    x: np.ndarray,
-    y: np.ndarray,
+    cohort: CohortData,
     dataset_name: str,
     key: str,
     model_name: str,
     saver: TBLSResultSaver,
 ) -> list[dict[str, Any]]:
-    """Sweep the hyperparameter grid for one sub-dataset; write a ranked summary."""
+    """Sweep the model hyperparameter grid for one cohort; write a ranked summary.
+
+    Scope note: sweeps only the model grid (``TBLS_GRID``/``BLS_GRID``) at a
+    fixed fusion default for multi-view cohorts; fusion hyperparameters are not
+    swept in this pass.
+    """
     name = cfg.get("model", {}).get("name", "tbls")
     grid_axes = TBLS_GRID if name == "tbls" else BLS_GRID
 
     rows: list[dict[str, Any]] = []
     for i, point in enumerate(ParameterGrid(grid_axes), start=1):
-        fold_results = _cross_validate(cfg, x, y, dataset_name, key, grid_point=point)
+        fold_results = _cross_validate(cfg, cohort, dataset_name, key, grid_point=point)
         saver.save_fold_results(fold_results, sheet_name=f"Grid_{i:03d}")
         avg = TBLSEvaluator.calculate_average_metrics(fold_results)
         rows.append({"grid_idx": i, "model": model_name, **point, **avg})
@@ -215,6 +313,12 @@ def train(
     map_num: int | None = typer.Option(None, help="Override mapping node count (TBLS)."),
     n_splits: int | None = typer.Option(None, help="Override CV fold count."),
     output_dir: str | None = typer.Option(None, help="Override output directory."),
+    fusion: str | None = typer.Option(
+        None,
+        "--fusion",
+        help="Override fusion method for multi-view cohorts (cca|gfcca). "
+        "Only overrides *which* fusion runs; fusion always runs for a multi-view cohort.",
+    ),
     grid: bool = typer.Option(
         False, "--grid", help="Sweep the hyperparameter grid and write a ranked GridSummary."
     ),
@@ -233,6 +337,8 @@ def train(
         cfg.setdefault("cv", {})["n_splits"] = n_splits
     if output_dir is not None:
         cfg["output_dir"] = output_dir
+    if fusion is not None:
+        cfg.setdefault("fusion", {})["method"] = fusion
 
     dataset_name = cfg["dataset"]
     data_path = Path(cfg.get("data_path", "experiments/datasets"))
@@ -244,13 +350,26 @@ def train(
     out_base = Path(cfg.get("output_dir", "results_dir"))
     model_name = cfg.get("model", {}).get("name", "tbls")
 
-    subsets = _load_subsets(pkl_path)
+    cohorts = _load_cohorts(pkl_path)
     logger.info(
-        "dataset=%s model=%s keys=%s grid=%s", dataset_name, model_name, list(subsets.keys()), grid
+        "dataset=%s model=%s keys=%s grid=%s",
+        dataset_name,
+        model_name,
+        list(cohorts.keys()),
+        grid,
     )
 
-    for key, (x, y) in subsets.items():
-        logger.info("=== %s / %s : X=%s y=%s ===", dataset_name, key, x.shape, y.shape)
+    for key, cohort in cohorts.items():
+        is_mv = len(cohort) == 3 and cohort[2] == "multiview"
+        if is_mv:
+            views, y, _ = cohort
+            shapes = {n: v.shape for n, v in views.items()}
+            logger.info(
+                "=== %s / %s : multiview views=%s y=%s ===", dataset_name, key, shapes, y.shape
+            )
+        else:
+            x, y = cohort
+            logger.info("=== %s / %s : X=%s y=%s ===", dataset_name, key, x.shape, y.shape)
         result_dir = out_base / f"{model_name}_{dataset_name}" / key / timestamp
         saver = TBLSResultSaver(
             dataset_name=dataset_name,
@@ -263,9 +382,9 @@ def train(
         )
 
         if grid:
-            _run_grid(cfg, x, y, dataset_name, key, model_name, saver)
+            _run_grid(cfg, cohort, dataset_name, key, model_name, saver)
         else:
-            fold_results = _cross_validate(cfg, x, y, dataset_name, key)
+            fold_results = _cross_validate(cfg, cohort, dataset_name, key)
             saver.save_fold_results(fold_results, sheet_name=f"{model_name}_Details")
             avg = TBLSEvaluator.calculate_average_metrics(fold_results)
             saver.save_summary([{"key": key, **avg}], sheet_name=f"{model_name}_Summary")

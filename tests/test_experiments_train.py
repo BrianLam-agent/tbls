@@ -66,7 +66,7 @@ def test_grid_smoke_ranks_and_one_row_per_point(tmp_path, monkeypatch) -> None:
     cfg = {"model": {"name": "tbls"}, "cv": {"n_splits": 2, "random_state": 0}, "preprocess": {}}
     saver = TBLSResultSaver(dataset_name="synth", timestamp="t", key="k", output_dir=str(tmp_path))
 
-    rows = _run_grid(cfg, x, y, "synth", "k", "tbls", saver)
+    rows = _run_grid(cfg, (x, y), "synth", "k", "tbls", saver)
 
     assert len(rows) == 4  # 2x2 grid
     assert {r["grid_idx"] for r in rows} == {1, 2, 3, 4}
