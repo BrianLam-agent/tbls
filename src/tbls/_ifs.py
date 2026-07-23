@@ -167,11 +167,15 @@ def compute_if_scores_simple(
     # absolute ``sigma_if`` underflows ``mu`` to numerical zero on any real,
     # non-toy-scale dataset, which collapses the IFS weights to ``min_weight``).
     sigma_eff = sigma_if * median_dist
-    mu = np.zeros(n, dtype=np.float64)
-    for i in range(n):
-        ci = y[i]
-        dist = np.linalg.norm(A[i] - centers[ci])
-        mu[i] = np.exp(-(dist**2) / (2 * sigma_eff**2))
+    # Vectorized per-sample distance to its own class centroid. ``centers_arr``
+    # is indexed by label (not dict lookup in a loop) so the whole ``mu`` term
+    # is one vectorized norm + one exp. Bit-for-bit equivalent to the previous
+    # ``for i in range(n): mu[i] = exp(-||A[i]-centers[y[i]]||**2 / (2 s**2))``.
+    centers_arr = np.vstack([centers[c] for c in classes])
+    label_to_row = {c: i for i, c in enumerate(classes)}
+    own_center = centers_arr[np.asarray([label_to_row[c] for c in y], dtype=np.intp)]
+    dist_to_center = np.linalg.norm(A - own_center, axis=1)
+    mu = np.exp(-(dist_to_center**2) / (2.0 * sigma_eff**2))
     mu = np.clip(mu, 0.0, 1.0)
 
     threshold = median_dist * delta_if
@@ -194,13 +198,20 @@ def compute_if_scores_simple(
     nu = (1.0 - mu) * rho
     nu = np.clip(nu, 0.0, 1.0)
 
-    s = np.ones(n, dtype=np.float64)
-    for i in range(n):
-        if nu[i] == 0:
-            s[i] = mu[i]
-        elif mu[i] <= nu[i]:
-            s[i] = 0.0
-        else:
-            s[i] = (1.0 - nu[i]) / (2.0 - mu[i] - nu[i])
+    # Vectorized piecewise weight: the loop's three branches map to nested
+    # ``np.where``. The ``else`` arithmetic ``(1-nu)/(2-mu-nu)`` can only hit a
+    # zero denominator when ``mu=nu=1``, in which case ``mu<=nu`` is true and the
+    # ``0.0`` branch applies instead -- so the ``else`` expression is never
+    # actually used where it would divide by zero. To avoid a spurious numpy
+    # divide-by-zero warning on that (unreachable) input, compute the ``else``
+    # row only on its own mask, with the other rows filled from the branches.
+    s = np.empty(n, dtype=np.float64)
+    zero_nu = nu == 0
+    le = (~zero_nu) & (mu <= nu)
+    gt = (~zero_nu) & (mu > nu)
+    s[zero_nu] = mu[zero_nu]
+    s[le] = 0.0
+    denom = 2.0 - mu[gt] - nu[gt]
+    s[gt] = (1.0 - nu[gt]) / denom
     # Clip to [min_weight, 1.0] so weights stay positive.
     return np.clip(s, min_weight, 1.0)
