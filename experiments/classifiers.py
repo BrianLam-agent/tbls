@@ -1,35 +1,35 @@
 # classifiers.py
-"""
-统一分类器工厂。
+"""Unified classifier factory.
 
-为多模态 CCA 实验提供统一的分类器创建接口。所有返回的分类器实例
-均符合 sklearn Estimator 协议（fit, predict, predict_proba），
-并自动处理类别不平衡问题（当算法支持时）。
+Provides a single classifier-construction interface for multimodal CCA
+experiments. Every returned classifier instance conforms to the sklearn
+estimator protocol (``fit``, ``predict``, ``predict_proba``), and class
+imbalance is handled automatically when the underlying algorithm supports it.
 
-可用分类器：
-    'rf'        随机森林
-    'svm'       RBF 核支持向量机
-    'xgb'       XGBoost (自动类别加权)
-    'lgb'       LightGBM (自动类别加权)
-    'catboost'  CatBoost (自动类别加权)
-    'knn'       K 最近邻
-    'lr'        逻辑回归 (带类别平衡)
-    'lasso'     L1 正则化逻辑回归 (带类别平衡)
-    'elasticnet' 弹性网络逻辑回归 (带类别平衡)
-    'nb'        高斯朴素贝叶斯
-    'lda'       线性判别分析
-    'cart'      决策树 (带类别平衡)
-    'mlp'       多层感知机
-    'dnn'       深度全连接网络
-    'extratrees' 极端随机树 (带类别平衡)
-    'gbdt'      梯度提升树
+Available classifiers:
+    'rf'        Random Forest
+    'svm'       RBF-kernel Support Vector Machine
+    'xgb'       XGBoost (automatic class weighting)
+    'lgb'       LightGBM (automatic class weighting)
+    'catboost'  CatBoost (automatic class weighting)
+    'knn'       K-Nearest Neighbors
+    'lr'        Logistic Regression (with class balancing)
+    'lasso'     L1-regularized Logistic Regression (with class balancing)
+    'elasticnet' Elastic-Net Logistic Regression (with class balancing)
+    'nb'        Gaussian Naive Bayes
+    'lda'       Linear Discriminant Analysis
+    'cart'      Decision Tree (with class balancing)
+    'mlp'       Multi-Layer Perceptron
+    'dnn'       Deep fully-connected network
+    'extratrees' Extra Trees (with class balancing)
+    'gbdt'      Gradient Boosting Decision Tree
     'block_plsda', 'block_splsda'
     'mogonet', 'mogonet_nn'
-    'bls'       宽度学习系统 (需要同目录下的 bls.py)
-    'tbls'      树宽度学习系统 (需要同目录下的 tbls.py)
-    'mofa'      多组学因子分析 (无监督特征提取 + 下游分类器)
-    'diablo'    多块稀疏PLS-DA (增强版 block.splsda，支持设计矩阵)
-    'snf'       相似性网络融合 (无监督融合 + 下游分类器)
+    'bls'       Broad Learning System (requires bls.py in the same directory)
+    'tbls'      Tree Broad Learning System (requires tbls.py / the tbls package)
+    'mofa'      Multi-Omics Factor Analysis (unsupervised feature extraction + downstream classifier)
+    'diablo'    Multi-block sparse PLS-DA (an enhanced block.splsda with a design matrix)
+    'snf'       Similarity Network Fusion (unsupervised fusion + downstream classifier)
 """
 
 import numpy as np
@@ -49,7 +49,7 @@ from sklearn.svm import SVC
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.utils.class_weight import compute_sample_weight
 
-# ---------- 可选依赖处理 ----------
+# ---------- Optional-dependency handling ----------
 try:
     import xgboost as xgb
 
@@ -91,7 +91,7 @@ except ImportError:
     _HAS_TBLS = False
     TBLS = None
 
-# NEW: 检测 PyTorch（用于 MOGONET）
+# Detect PyTorch (used by MOGONET).
 try:
     import torch
     import torch.nn as nn
@@ -102,7 +102,7 @@ try:
 except ImportError:
     _HAS_TORCH = False
 
-# NEW: 检测 MOFA 依赖 (muon 或 mofapy2)
+# Detect MOFA dependencies (muon or mofapy2).
 try:
     import muon as mu
     from muon import tl as mutl
@@ -121,7 +121,7 @@ except ImportError:
         _HAS_MOFAPY2 = False
         _MOFA_BACKEND = None
 
-# NEW: 检测 SNF 依赖 (snfpy)
+# Detect SNF dependency (snfpy).
 try:
     import snf
 
@@ -131,11 +131,11 @@ except ImportError:
     snf = None
 
 
-# ---------- 自动平衡的包装器 ----------
+# ---------- Auto-balancing wrappers ----------
 class BalancedXGBClassifier(BaseEstimator, ClassifierMixin):
-    """
-    XGBoost 包装器，在 fit 时自动计算 'balanced' 样本权重，
-    使模型适用于类别不平衡场景。
+    """XGBoost wrapper that computes 'balanced' sample weights at ``fit`` time.
+
+    Suitable for class-imbalanced settings.
     """
 
     def __init__(self, random_state=42, **kwargs):
@@ -155,6 +155,7 @@ class BalancedXGBClassifier(BaseEstimator, ClassifierMixin):
         self._estimator = None
 
     def fit(self, X, y):
+        """Fit the wrapped booster with ``'balanced'`` sample weights."""
         self._estimator = xgb.XGBClassifier(random_state=self.random_state, **self.kwargs)
         sample_weights = compute_sample_weight(class_weight="balanced", y=y)
         self._estimator.fit(X, y, sample_weight=sample_weights)
@@ -162,17 +163,21 @@ class BalancedXGBClassifier(BaseEstimator, ClassifierMixin):
         return self
 
     def predict(self, X):
+        """Predict class labels for ``X``."""
         return self._estimator.predict(X)
 
     def predict_proba(self, X):
+        """Predict class probabilities for ``X``."""
         return self._estimator.predict_proba(X)
 
     def get_params(self, deep=True):
+        """Return this estimator's parameters."""
         params = self.kwargs.copy()
         params["random_state"] = self.random_state
         return params
 
     def set_params(self, **params):
+        """Set this estimator's parameters."""
         if "random_state" in params:
             self.random_state = params.pop("random_state")
         self.kwargs.update(params)
@@ -180,9 +185,7 @@ class BalancedXGBClassifier(BaseEstimator, ClassifierMixin):
 
 
 class BalancedLGBMClassifier(BaseEstimator, ClassifierMixin):
-    """
-    LightGBM 包装器，在 fit 时自动计算 'balanced' 样本权重。
-    """
+    """LightGBM wrapper that computes 'balanced' sample weights at ``fit`` time."""
 
     def __init__(self, random_state=42, **kwargs):
         self.random_state = random_state
@@ -201,6 +204,7 @@ class BalancedLGBMClassifier(BaseEstimator, ClassifierMixin):
         self._estimator = None
 
     def fit(self, X, y):
+        """Fit the wrapped booster with ``'balanced'`` sample weights."""
         self._estimator = lgb.LGBMClassifier(random_state=self.random_state, **self.kwargs)
         sample_weights = compute_sample_weight(class_weight="balanced", y=y)
         self._estimator.fit(X, y, sample_weight=sample_weights)
@@ -208,17 +212,21 @@ class BalancedLGBMClassifier(BaseEstimator, ClassifierMixin):
         return self
 
     def predict(self, X):
+        """Predict class labels for ``X``."""
         return self._estimator.predict(X)
 
     def predict_proba(self, X):
+        """Predict class probabilities for ``X``."""
         return self._estimator.predict_proba(X)
 
     def get_params(self, deep=True):
+        """Return this estimator's parameters."""
         params = self.kwargs.copy()
         params["random_state"] = self.random_state
         return params
 
     def set_params(self, **params):
+        """Set this estimator's parameters."""
         if "random_state" in params:
             self.random_state = params.pop("random_state")
         self.kwargs.update(params)
@@ -226,9 +234,7 @@ class BalancedLGBMClassifier(BaseEstimator, ClassifierMixin):
 
 
 class BalancedCatBoostClassifier(BaseEstimator, ClassifierMixin):
-    """
-    CatBoost 包装器，内部自动处理类别不平衡。
-    """
+    """CatBoost wrapper that handles class imbalance internally."""
 
     def __init__(self, random_state=42, **kwargs):
         self.random_state = random_state
@@ -245,40 +251,46 @@ class BalancedCatBoostClassifier(BaseEstimator, ClassifierMixin):
         self._estimator = None
 
     def fit(self, X, y):
+        """Fit the wrapped booster; class imbalance is handled internally by CatBoost."""
         self._estimator = cb.CatBoostClassifier(**self.kwargs)
         self._estimator.fit(X, y)
         self.classes_ = self._estimator.classes_
         return self
 
     def predict(self, X):
+        """Predict class labels for ``X``."""
         return self._estimator.predict(X)
 
     def predict_proba(self, X):
+        """Predict class probabilities for ``X``."""
         return self._estimator.predict_proba(X)
 
     def get_params(self, deep=True):
+        """Return this estimator's parameters."""
         params = self.kwargs.copy()
         params["random_state"] = self.random_state
         return params
 
     def set_params(self, **params):
+        """Set this estimator's parameters."""
         if "random_state" in params:
             self.random_state = params.pop("random_state")
         self.kwargs.update(params)
         return self
 
 
-# ---------- 纯 Python 实现的 Block PLSDA / sPLSDA ----------
+# ---------- Pure-Python Block PLSDA / sPLSDA ----------
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.feature_selection import SelectKBest, f_classif
 from sklearn.preprocessing import StandardScaler
 
 
 class MixOmicsBlockPLSDA(BaseEstimator, ClassifierMixin):
-    """
-    纯 Python 实现的多块 PLS-DA / 稀疏 PLS-DA（无需 R）。
-    对于 splsda 模式，每个视图先通过 SelectKBest 选择 keepX[i] 个特征，
-    然后拼接所有视图后执行标准 PLS-DA。
+    """Pure-Python multi-block PLS-DA / sparse PLS-DA (no R required).
+
+    In ``splsda`` mode each view first selects ``keepX[i]`` features via
+    ``SelectKBest``; all views are then concatenated and a standard PLS-DA is
+    fitted on the concatenation.
     """
 
     def __init__(self, ncomp=2, keepX=None, mode="plsda", random_state=42):
@@ -287,26 +299,27 @@ class MixOmicsBlockPLSDA(BaseEstimator, ClassifierMixin):
         self.mode = mode  # 'plsda' or 'splsda'
         self.random_state = random_state
         self.scalers_ = None
-        self.selectors_ = None  # 每个视图的特征选择器（仅 splsda 模式）
+        self.selectors_ = None  # per-view feature selectors (splsda mode only)
         self.pls_ = None
         self.classes_ = None
 
     def fit(self, X_views, y):
-        # 标准化每个视图
+        """Fit the multi-block (sparse) PLS-DA on the per-view matrices in ``X_views``."""
+        # Standardize each view.
         self.scalers_ = [StandardScaler() for _ in X_views]
         X_scaled = [
             scaler.fit_transform(X) for scaler, X in zip(self.scalers_, X_views, strict=False)
         ]
 
-        # 稀疏特征选择（仅当 mode='splsda' 且 keepX 不为 None）
+        # Sparse feature selection (only when mode='splsda' and keepX is not None).
         if self.mode == "splsda" and self.keepX is not None:
             if len(self.keepX) != len(X_views):
-                raise ValueError("keepX 的长度必须等于视图数量")
+                raise ValueError("keepX length must equal the number of views.")
             self.selectors_ = []
             X_selected = []
             for _, (X, k) in enumerate(zip(X_scaled, self.keepX, strict=False)):
                 if k >= X.shape[1]:
-                    # 如果 k 不小于特征数，保留全部特征
+                    # If k is not smaller than the feature count, keep all features.
                     selector = None
                     X_sel = X
                 else:
@@ -316,30 +329,32 @@ class MixOmicsBlockPLSDA(BaseEstimator, ClassifierMixin):
                 X_selected.append(X_sel)
             X_concat = np.hstack(X_selected)
         else:
-            # 普通 PLSDA：直接拼接所有视图
+            # Plain PLSDA: concatenate all views directly.
             X_concat = np.hstack(X_scaled)
 
-        # 将标签转换为 one-hot
+        # One-hot encode the labels.
         self.classes_ = np.unique(y)
         y_onehot = np.zeros((len(y), len(self.classes_)))
         for i, c in enumerate(self.classes_):
             y_onehot[y == c, i] = 1
 
-        # 拟合 PLS 回归
+        # Fit the PLS regression.
         self.pls_ = PLSRegression(n_components=self.ncomp, scale=False)
         self.pls_.fit(X_concat, y_onehot)
         return self
 
     def predict(self, X_views):
+        """Predict class indices for the per-view matrices in ``X_views``."""
         proba = self.predict_proba(X_views)
         return np.argmax(proba, axis=1)
 
     def predict_proba(self, X_views):
+        """Predict class probabilities for the per-view matrices in ``X_views``."""
         if self.pls_ is None:
             raise RuntimeError("Model not fitted; call fit() first.")
-        # 标准化
+        # Standardize.
         X_scaled = [scaler.transform(X) for scaler, X in zip(self.scalers_, X_views, strict=False)]
-        # 特征选择
+        # Feature selection.
         if self.mode == "splsda" and self.selectors_ is not None:
             X_selected = []
             for _i, (X, selector) in enumerate(zip(X_scaled, self.selectors_, strict=False)):
@@ -348,11 +363,12 @@ class MixOmicsBlockPLSDA(BaseEstimator, ClassifierMixin):
             X_concat = np.hstack(X_selected)
         else:
             X_concat = np.hstack(X_scaled)
-        # PLS 预测
+        # PLS prediction.
         y_scores = self.pls_.predict(X_concat)  # shape (n_samples, n_classes)
         return softmax(y_scores, axis=1).astype(np.float32)
 
     def get_params(self, deep=True):
+        """Return this estimator's parameters."""
         return {
             "ncomp": self.ncomp,
             "keepX": self.keepX,
@@ -361,13 +377,14 @@ class MixOmicsBlockPLSDA(BaseEstimator, ClassifierMixin):
         }
 
     def set_params(self, **params):
+        """Set this estimator's parameters."""
         for key, value in params.items():
             setattr(self, key, value)
         return self
 
 
 # ================================
-# 严格参照原作者 models.py 和论文的 MOGONET 实现
+# MOGONET implementation, following the original authors' models.py and paper.
 # ================================
 if _HAS_TORCH:
     from sklearn.preprocessing import StandardScaler
@@ -376,12 +393,16 @@ if _HAS_TORCH:
     import torch.nn.functional as F
 
     def xavier_init(m):
+        """Xavier-initialize ``m`` in place (Linear weights + bias)."""
+        # Xavier-initialize a Linear module (weights + bias).
         if isinstance(m, nn.Linear):
             nn.init.xavier_normal_(m.weight)
             if m.bias is not None:
                 m.bias.data.fill_(0.0)
 
     class GraphConvolution(nn.Module):
+        """A single graph convolution layer (GCN)."""
+
         def __init__(self, in_features, out_features, bias=True):
             super().__init__()
             self.in_features = in_features
@@ -394,6 +415,7 @@ if _HAS_TORCH:
                 self.bias.data.fill_(0.0)
 
         def forward(self, x, adj):
+            """Apply one graph convolution to node features ``x`` with adjacency ``adj``."""
             support = torch.mm(x, self.weight)
             output = torch.sparse.mm(adj, support)
             if self.bias is not None:
@@ -401,6 +423,8 @@ if _HAS_TORCH:
             return output
 
     class GCN_E(nn.Module):
+        """Three-layer GCN encoder used by MOGONET."""
+
         def __init__(self, in_dim, hgcn_dim, dropout):
             super().__init__()
             self.gc1 = GraphConvolution(in_dim, hgcn_dim[0])
@@ -409,6 +433,7 @@ if _HAS_TORCH:
             self.dropout = dropout
 
         def forward(self, x, adj):
+            """Encode node features ``x`` through the 3-layer GCN stack with adjacency ``adj``."""
             x = self.gc1(x, adj)
             x = F.leaky_relu(x, 0.25)
             x = F.dropout(x, self.dropout, training=self.training)
@@ -419,15 +444,20 @@ if _HAS_TORCH:
             return F.leaky_relu(x, 0.25)
 
     class Classifier_1(nn.Module):
+        """Single-linear-layer view classifier."""
+
         def __init__(self, in_dim, out_dim):
             super().__init__()
             self.clf = nn.Sequential(nn.Linear(in_dim, out_dim))
             self.clf.apply(xavier_init)
 
         def forward(self, x):
+            """Compute per-view class logits for features ``x``."""
             return self.clf(x)
 
     class VCDN(nn.Module):
+        """View Correlation Discovery Network: fuses per-view class probabilities."""
+
         def __init__(self, num_view, num_cls, hvcdn_dim):
             super().__init__()
             self.num_cls = num_cls
@@ -439,6 +469,7 @@ if _HAS_TORCH:
             self.model.apply(xavier_init)
 
         def forward(self, in_list):
+            """Fuse the per-view logit list into VCDN output logits."""
             num_view = len(in_list)
             for i in range(num_view):
                 in_list[i] = torch.sigmoid(in_list[i])
@@ -454,6 +485,12 @@ if _HAS_TORCH:
             return self.model(vcdn_feat)
 
     class MOGONETClassifier(BaseEstimator, ClassifierMixin):
+        """MOGONET: multi-view graph-convolution fusion classifier.
+
+        Per-view GCN encoders + per-view classifiers are trained jointly with a
+        VCDN fusion head. Supports an optional NN (non-graph) encoder mode.
+        """
+
         def __init__(
             self,
             hidden_dim=64,
@@ -481,9 +518,10 @@ if _HAS_TORCH:
             self.device = None
             self.n_views = None
             self.n_classes = None
-            self.scalers = None  # 存储每个视图的标准化器
+            self.scalers = None  # per-view standardizers
 
         def _build_adj(self, X):
+            # Build a k-NN cosine-similarity graph adjacency (normalized).
             from sklearn.metrics.pairwise import cosine_similarity
 
             sim = cosine_similarity(X)
@@ -516,16 +554,17 @@ if _HAS_TORCH:
             )
 
         def fit(self, X_views, y):
+            """Fit per-view GCN encoders + classifiers and the VCDN fusion head."""
             if not _HAS_TORCH:
                 raise ImportError("PyTorch not installed; cannot use MOGONET.")
 
-            # 1. 数据标准化（关键修复：防止输入尺度差异导致梯度爆炸）
+            # 1. Standardize the data (key fix: prevents gradient explosions from input-scale mismatch).
             self.scalers = [StandardScaler() for _ in X_views]
             X_scaled = [
                 scaler.fit_transform(X) for scaler, X in zip(self.scalers, X_views, strict=False)
             ]
 
-            # 2. 检查 NaN/Inf
+            # 2. Check for NaN/Inf.
             for i, X in enumerate(X_scaled):
                 if np.any(np.isnan(X)) or np.any(np.isinf(X)):
                     raise ValueError(f"View {i} contains NaN or Inf; check data preprocessing.")
@@ -535,15 +574,15 @@ if _HAS_TORCH:
             self.classes_ = np.unique(y)
             self.n_classes = len(self.classes_)
 
-            # 构建邻接矩阵（使用标准化后的数据）
+            # Build adjacency matrices (from standardized data).
             adjs = [self._build_adj(X) for X in X_scaled]
 
-            # 转换为张量
+            # Convert to tensors.
             X_tensors = [torch.tensor(X, dtype=torch.float32).to(self.device) for X in X_scaled]
             adj_tensors = [adj.to(self.device) for adj in adjs]
             y_tensor = torch.tensor(y, dtype=torch.long).to(self.device)
 
-            # 模型初始化
+            # Model initialization.
             hgcn_dim = [self.hidden_dim, self.hidden_dim, self.hidden_dim]
             dim_list = [X.shape[1] for X in X_scaled]
 
@@ -564,7 +603,7 @@ if _HAS_TORCH:
             for key in self.model_dict:
                 self.model_dict[key] = self.model_dict[key].to(self.device)
 
-            # 优化器（每个视图独立，VCDN 独立）
+            # Optimizers: per-view (VCDN separate).
             self.optim_dict = {}
             for i in range(self.n_views):
                 params = list(self.model_dict[f"E{i + 1}"].parameters()) + list(
@@ -576,9 +615,9 @@ if _HAS_TORCH:
                     self.model_dict["C"].parameters(), lr=self.lr
                 )
 
-            # 预训练（可选）
+            # Pre-training (optional).
             if self.pretrain_epochs > 0:
-                print(f"  预训练每个视图 {self.pretrain_epochs} epochs...")
+                print(f"  Pre-training each view for {self.pretrain_epochs} epochs...")
                 for i in range(self.n_views):
                     optimizer = torch.optim.Adam(
                         list(self.model_dict[f"E{i + 1}"].parameters())
@@ -599,13 +638,13 @@ if _HAS_TORCH:
                         optimizer.step()
                         if (epoch + 1) % 20 == 0:
                             print(
-                                f"    视图{i + 1} epoch {epoch + 1}/{self.pretrain_epochs}, loss={loss.item():.4f}"
+                                f"    view {i + 1} epoch {epoch + 1}/{self.pretrain_epochs}, loss={loss.item():.4f}"
                             )
 
-            # 联合训练
-            print(f"  联合训练 {self.epochs} epochs...")
+            # Joint training.
+            print(f"  Joint training for {self.epochs} epochs...")
             for epoch in range(self.epochs):
-                # ---- 阶段 1：更新所有视图（固定 VCDN） ----
+                # ---- Stage 1: update all views (VCDN frozen) ----
                 for i in range(self.n_views):
                     for param in self.model_dict[f"E{i + 1}"].parameters():
                         param.requires_grad = True
@@ -615,7 +654,7 @@ if _HAS_TORCH:
                     for param in self.model_dict["C"].parameters():
                         param.requires_grad = False
 
-                # 清零梯度
+                # Zero gradients.
                 for i in range(self.n_views):
                     self.optim_dict[f"C{i + 1}"].zero_grad()
 
@@ -632,7 +671,7 @@ if _HAS_TORCH:
                 for i in range(self.n_views):
                     self.optim_dict[f"C{i + 1}"].step()
 
-                # ---- 阶段 2：更新 VCDN（固定视图） ----
+                # ---- Stage 2: update VCDN (views frozen) ----
                 if self.n_views >= 2:
                     for i in range(self.n_views):
                         for param in self.model_dict[f"E{i + 1}"].parameters():
@@ -671,7 +710,7 @@ if _HAS_TORCH:
             return self
 
         def _predict_proba_tensor(self, X_views):
-            # 对测试数据应用训练时的标准化
+            # Apply the training-time standardizer to the test data.
             X_scaled = [
                 scaler.transform(X) for scaler, X in zip(self.scalers, X_views, strict=False)
             ]
@@ -697,46 +736,46 @@ if _HAS_TORCH:
             return proba.cpu().numpy()
 
         def predict(self, X_views):
+            """Predict class indices for the multi-view input."""
             proba = self.predict_proba(X_views)
             return np.argmax(proba, axis=1)
 
         def predict_proba(self, X_views):
+            """Predict class probabilities for the multi-view input."""
             return self._predict_proba_tensor(X_views).astype(np.float32)
 
 else:
 
     class MOGONETClassifier(BaseEstimator, ClassifierMixin):
+        """Stub MOGONET classifier used when PyTorch is unavailable."""
+
         def __init__(self, **kwargs):
             pass
 
         def fit(self, X, y):
+            """Always raises; MOGONET requires PyTorch."""
             raise ImportError("PyTorch not installed; MOGONET unavailable.")
 
         def predict(self, X):
+            """Always raises; MOGONET requires PyTorch."""
             raise ImportError("PyTorch not installed; MOGONET unavailable.")
 
 
 # ================================
-# 新增算法：MOFA（多组学因子分析）
+# MOFA (Multi-Omics Factor Analysis).
 # ================================
 class MOFAClassifier(BaseEstimator, ClassifierMixin):
-    """
-    MOFA (Multi-Omics Factor Analysis) 包装器。
-    使用 muon 或 mofapy2 后端进行无监督因子提取，
-    然后使用下游分类器进行分类。
+    """MOFA (Multi-Omics Factor Analysis) wrapper.
 
-    参数
-    ----------
-    n_factors : int, default=20
-        因子个数 (K)
-    downstream_clf : str or sklearn estimator, default='rf'
-        下游分类器名称或实例
-    downstream_kwargs : dict, default=None
-        下游分类器的额外参数
-    use_gpu : bool, default=False
-        是否使用 GPU（仅 muon 后端有效）
-    random_state : int, default=42
-        随机种子
+    Uses the ``muon`` or ``mofapy2`` backend for unsupervised factor extraction,
+    then a downstream classifier for prediction.
+
+    Args:
+        n_factors: Number of factors (K). Default 20.
+        downstream_clf: Downstream classifier name or sklearn estimator instance. Default 'rf'.
+        downstream_kwargs: Extra kwargs for the downstream classifier. Default None.
+        use_gpu: Whether to use GPU (muon backend only). Default False.
+        random_state: Random seed. Default 42.
     """
 
     def __init__(
@@ -752,27 +791,28 @@ class MOFAClassifier(BaseEstimator, ClassifierMixin):
         self.downstream_kwargs = downstream_kwargs or {}
         self.use_gpu = use_gpu
         self.random_state = random_state
-        self.model_ = None  # 存储 MOFA 模型
-        self.factors_ = None  # 训练集的因子矩阵 (N, n_factors)
-        self.downstream_ = None  # 下游分类器
+        self.model_ = None  # the trained MOFA model
+        self.factors_ = None  # training factor matrix (N, n_factors)
+        self.downstream_ = None  # downstream classifier
         self.classes_ = None
 
     def fit(self, X_views, y):
+        """Train the MOFA factor model and the downstream classifier on the per-view matrices."""
         if _MOFA_BACKEND is None:
             raise ImportError(
-                "需要安装 muon 或 mofapy2 才能使用 MOFA。"
-                "请执行 'pip install muon' 或 'pip install mofapy2'"
+                "muon or mofapy2 is required to use MOFA. "
+                "Install with 'pip install muon' or 'pip install mofapy2'."
             )
 
-        # 1. 使用 muon 或 mofapy2 训练 MOFA 模型
+        # 1. Train the MOFA model with the muon or mofapy2 backend.
         if _MOFA_BACKEND == "muon":
             self._fit_muon(X_views, y)
         else:
             self._fit_mofapy2(X_views, y)
 
-        # 2. 训练下游分类器
+        # 2. Train the downstream classifier.
         if isinstance(self.downstream_clf, str):
-            from classifiers import create_classifier  # 避免循环依赖，使用工厂函数
+            from classifiers import create_classifier  # avoid circular import; use the factory
 
             self.downstream_ = create_classifier(
                 self.downstream_clf, random_state=self.random_state, **self.downstream_kwargs
@@ -784,13 +824,13 @@ class MOFAClassifier(BaseEstimator, ClassifierMixin):
         return self
 
     def _fit_muon(self, X_views, y):
-        """使用 muon 后端训练 MOFA"""
+        """Train MOFA with the muon backend."""
         import anndata as ad
         import muon as mu
 
-        # 构建 MuData 对象
+        # Build the MuData object.
         mdata = mu.MuData({f"view_{i}": ad.AnnData(X) for i, X in enumerate(X_views)})
-        # 运行 MOFA
+        # Run MOFA.
         mutl.mofa(
             mdata,
             use_obs_as_factors=True,
@@ -798,37 +838,39 @@ class MOFAClassifier(BaseEstimator, ClassifierMixin):
             use_gpu=self.use_gpu,
             random_seed=self.random_state,
         )
-        # 提取因子矩阵 (samples × factors)
+        # Extract the factor matrix (samples x factors).
         self.factors_ = mdata.obsm["X_mofa"].values.astype(np.float32)
         self.model_ = mdata
 
     def _fit_mofapy2(self, X_views, y):
-        """使用 mofapy2 后端训练 MOFA（较旧版本）"""
+        """Train MOFA with the mofapy2 backend (older versions)."""
         from mofapy2.run import run_mofa
 
-        # 构建输入数据字典
+        # Build the input data dict.
         data = {}
         for i, X in enumerate(X_views):
-            data[f"view_{i}"] = X.T  # mofapy2 期望 features × samples
-        # 运行 MOFA
+            data[f"view_{i}"] = X.T  # mofapy2 expects features x samples
+        # Run MOFA.
         model = run_mofa(
             data, k=self.n_factors, use_obs_as_factors=True, random_seed=self.random_state
         )
-        # 提取因子矩阵 (samples × factors)
+        # Extract the factor matrix (samples x factors).
         self.factors_ = model.nodes["Z"].get_values().T.astype(np.float32)
         self.model_ = model
 
     def predict(self, X_views):
+        """Predict class indices for the per-view matrices in ``X_views``."""
         proba = self.predict_proba(X_views)
         return np.argmax(proba, axis=1)
 
     def predict_proba(self, X_views):
-        # 对新视图进行 out-of-sample 投影（MOFA 的投影函数）
+        """Predict class probabilities via factor projection and the downstream classifier."""
+        # Out-of-sample projection of new views onto the factor space, then downstream predict.
         new_factors = self._transform_new(X_views)
         return self.downstream_.predict_proba(new_factors)
 
     def _transform_new(self, X_views):
-        """将新视图投影到因子空间"""
+        """Project new views into the factor space."""
         if _MOFA_BACKEND == "muon":
             import anndata as ad
             import muon as mu
@@ -842,12 +884,13 @@ class MOFAClassifier(BaseEstimator, ClassifierMixin):
                 use_gpu=self.use_gpu,
             )
             return mdata_new.obsm["X_mofa"].values.astype(np.float32)
-        # mofapy2 不支持直接投影，这里用插值近似（此处简化，实际应使用模型的方法）
+        # mofapy2 does not support direct projection; approximated here (simplified).
         raise NotImplementedError(
             "mofapy2 backend does not support out-of-sample projection; use the muon backend."
         )
 
     def get_params(self, deep=True):
+        """Return this estimator's parameters."""
         return {
             "n_factors": self.n_factors,
             "downstream_clf": self.downstream_clf,
@@ -857,40 +900,39 @@ class MOFAClassifier(BaseEstimator, ClassifierMixin):
         }
 
     def set_params(self, **params):
+        """Set this estimator's parameters."""
         for key, value in params.items():
             setattr(self, key, value)
         return self
 
 
 # ================================
-# 新增算法：DIABLO（增强版多块稀疏PLS-DA）
+# DIABLO (enhanced multi-block sparse PLS-DA).
 # ================================
 class DIABLOClassifier(MixOmicsBlockPLSDA):
-    """
-    DIABLO (Data Integration Analysis for Biomarker Discovery using Latent cOmponents)
-    的纯 Python 近似实现。
+    """Pure-Python approximation of DIABLO.
 
-    在 MixOmicsBlockPLSDA 基础上增加了：
-        - 设计矩阵 design_matrix (控制哪些视图对之间应具有高相关性)
-        - 更完整的交叉验证参数 (ncomp_range, keepX_range)
-        - 多距离判别 (dist = 'max'/'centroids'/'mahalanobis')
+    DIABLO (Data Integration Analysis for Biomarker Discovery using Latent
+    cOmponents). Extends :class:`MixOmicsBlockPLSDA` with:
 
-    参数
-    ----------
-    ncomp : int or list, default=2
-        每个视图的潜在变量个数（若为list，则对应每个视图）
-    keepX : list of int, default=None
-        每个视图保留的特征数（用于稀疏性）
-    design_matrix : np.ndarray, shape (n_views, n_views), default=None
-        设计矩阵，元素为 0/1，表示是否建模该对视图间的相关性。
-        默认使用全1矩阵（完全连接）。
-    dist : str, default='max'
-        判别距离类型: 'max' (最大相关), 'centroids' (质心距离), 'mahalanobis' (马氏距离)
-    random_state : int, default=42
+        - a ``design_matrix`` controlling which view-pairs should be highly
+          correlated,
+        - more complete cross-validation parameters (``ncomp_range``,
+          ``keepX_range``),
+        - multiple discriminant distances (``dist`` = 'max'/'centroids'/'mahalanobis').
+
+    Args:
+        ncomp: Number of latent variables per view (or a list, one per view). Default 2.
+        keepX: Number of features kept per view (for sparsity). Default None.
+        design_matrix: ``(n_views, n_views)`` 0/1 matrix flagging which view-pairs to model.
+            Defaults to the all-ones matrix (fully connected).
+        dist: Discriminant distance type: 'max' (max correlation), 'centroids'
+            (centroid distance), or 'mahalanobis' (Mahalanobis distance). Default 'max'.
+        random_state: Random seed. Default 42.
     """
 
     def __init__(self, ncomp=2, keepX=None, design_matrix=None, dist="max", random_state=42):
-        # 调用父类初始化（mode='splsda' 或 'plsda'）
+        # Delegate to the parent initializer (mode='splsda' or 'plsda').
         mode = "splsda" if keepX is not None else "plsda"
         super().__init__(
             ncomp=ncomp if isinstance(ncomp, int) else ncomp[0],
@@ -907,32 +949,35 @@ class DIABLOClassifier(MixOmicsBlockPLSDA):
         )
 
     def fit(self, X_views, y):
+        """Fit the DIABLO multi-block sparse PLS-DA model on the per-view matrices."""
         self.n_views = len(X_views)
-        # 若没有提供设计矩阵，默认全1（完全连接）
+        # If no design matrix was given, default to all-ones (fully connected).
         if self.design_matrix is None:
             self.design_matrix = np.ones((self.n_views, self.n_views))
-        # 设计矩阵必须对称且对角线为0（通常不建模自己）
+        # The design matrix must be symmetric with a zero diagonal (self-pairs are not modeled).
         np.fill_diagonal(self.design_matrix, 0)
-        # 对于每个视图，如果 ncomp 是列表，需要分别处理不同的 ncomp。
-        # 这里简化：取第一个 ncomp 作为全局值（与父类一致）
+        # Per-view ncomp handling: if ncomp is a list, handle each view separately.
+        # Simplified here: take the first ncomp as the global value (consistent with the parent).
         if not isinstance(self.ncomp, int):
             self.ncomp = self.ncomp_list[0] if len(self.ncomp_list) > 0 else 2
-        # 调用父类 fit
+        # Delegate fit to the parent.
         super().fit(X_views, y)
-        # 存储更多内部状态用于不同距离的判别（这里仅作为占位，实际预测时使用）
-        self.train_scores_ = self.pls_.x_scores_  # 训练集的得分矩阵
+        # Store extra internal state for the different discriminant distances (placeholders).
+        self.train_scores_ = self.pls_.x_scores_  # training-set score matrix
         self.y_ = y
         return self
 
     def predict(self, X_views):
+        """Predict class indices for the per-view matrices in ``X_views``."""
         proba = self.predict_proba(X_views)
         return np.argmax(proba, axis=1)
 
     def predict_proba(self, X_views):
-        # 获得 PLS 的预测得分（连续值）
+        """Predict class probabilities under the chosen discriminant distance (``self.dist``)."""
+        # Get the PLS prediction scores (continuous values).
         if self.pls_ is None:
             raise RuntimeError("Model not fitted; call fit() first.")
-        # 标准化 + 特征选择
+        # Standardize + feature selection.
         X_scaled = [scaler.transform(X) for scaler, X in zip(self.scalers_, X_views, strict=False)]
         if self.mode == "splsda" and self.selectors_ is not None:
             X_selected = []
@@ -942,11 +987,11 @@ class DIABLOClassifier(MixOmicsBlockPLSDA):
         else:
             X_concat = np.hstack(X_scaled)
         y_scores = self.pls_.predict(X_concat)  # shape (n_samples, n_classes)
-        # 根据选择的距离类型计算概率
+        # Compute probabilities according to the chosen distance type.
         if self.dist == "max":
             proba = softmax(y_scores, axis=1)
         elif self.dist == "centroids":
-            # 计算测试样本与各类别质心的欧氏距离，并转换为概率
+            # Euclidean distance from each test score to each class centroid, converted to probabilities.
             centroids = []
             for c in self.classes_:
                 idx = self.y_ == c
@@ -958,11 +1003,11 @@ class DIABLOClassifier(MixOmicsBlockPLSDA):
                 dists = np.linalg.norm(score - centroids, axis=1)
                 distances.append(dists)
             distances = np.array(distances)
-            # 距离倒数归一化为概率（避免除零）
+            # Inverse-distance normalized to probabilities (avoid divide-by-zero).
             inv_dist = 1.0 / (distances + 1e-10)
             proba = inv_dist / inv_dist.sum(axis=1, keepdims=True)
         elif self.dist == "mahalanobis":
-            # 简化为使用训练得分协方差矩阵的马氏距离
+            # Simplified: Mahalanobis distance using the training-score covariance.
             cov = np.cov(self.train_scores_.T)
             try:
                 inv_cov = np.linalg.pinv(cov)
@@ -982,31 +1027,26 @@ class DIABLOClassifier(MixOmicsBlockPLSDA):
             inv_dist = 1.0 / (distances + 1e-10)
             proba = inv_dist / inv_dist.sum(axis=1, keepdims=True)
         else:
-            raise ValueError(f"未知的距离类型: {self.dist}")
+            raise ValueError(f"Unknown distance type: {self.dist}")
         return proba.astype(np.float32)
 
 
 class SNFClassifier(BaseEstimator, ClassifierMixin):
-    """
-    相似性网络融合 (Similarity Network Fusion) 包装器。
-    使用 snfpy 进行多视图相似度矩阵融合，然后输入下游分类器。
-    支持 out-of-sample 投影（测试集投影到训练集定义的融合空间）。
+    """Similarity Network Fusion wrapper.
 
-    参数
-    ----------
-    K : int, default=20
-        每个视图构建相似图时的最近邻个数
-    T : int, default=20
-        迭代融合次数
-    downstream_clf : str or sklearn estimator, default='rf'
-        下游分类器名称或实例
-    downstream_kwargs : dict, default=None
-        传递给下游分类器的额外参数
-    metric : str, default='euclidean'
-        构建相似度矩阵时使用的距离度量（snf.make_affinity 支持）
-    mu : float, default=0.5
-        相似度缩放参数
-    random_state : int, default=42
+    Fuses multi-view similarity matrices with ``snfpy`` and feeds the fused
+    representation to a downstream classifier. Supports out-of-sample projection
+    (test set projected into the fused space defined at training time).
+
+    Args:
+        K: Number of nearest neighbors used when building each view's similarity graph. Default 20.
+        T: Number of fusion iterations. Default 20.
+        downstream_clf: Downstream classifier name or sklearn estimator instance. Default 'rf'.
+        downstream_kwargs: Extra kwargs passed to the downstream classifier. Default None.
+        metric: Distance metric used when building similarity matrices (as accepted by
+            ``snf.make_affinity``). Default 'euclidean'.
+        mu: Similarity-scaling parameter. Default 0.5.
+        random_state: Random seed. Default 42.
     """
 
     def __init__(
@@ -1027,41 +1067,41 @@ class SNFClassifier(BaseEstimator, ClassifierMixin):
         self.mu = mu
         self.random_state = random_state
 
-        self.X_train_views_ = None  # 存储训练原始数据（用于投影）
-        self.scalers_ = None  # 每个视图的标准化器
-        self.fused_matrix_ = None  # 训练集的融合相似度矩阵 (N_train, N_train)
+        self.X_train_views_ = None  # training raw data (kept for projection)
+        self.scalers_ = None  # per-view standardizers
+        self.fused_matrix_ = None  # training fused similarity matrix (N_train, N_train)
         self.downstream_ = None
         self.classes_ = None
 
     def fit(self, X_views, y):
-        """训练 SNF 融合模型及下游分类器"""
+        """Train the SNF fusion model and downstream classifier."""
         if not _HAS_SNF:
-            raise ImportError("需要安装 snfpy。请执行 'pip install snfpy'")
+            raise ImportError("snfpy is required. Install with 'pip install snfpy'.")
 
-        # 1. 保存训练数据（原始值，未标准化）用于后续投影
+        # 1. Save the training data (raw, unscaled) for projection later.
         self.X_train_views_ = [X.copy() for X in X_views]
         self.classes_ = np.unique(y)
 
-        # 2. 标准化每个视图（使用训练集的均值和标准差）
+        # 2. Standardize each view (using training-set mean/std).
         self.scalers_ = [StandardScaler() for _ in X_views]
         X_scaled = [
             scaler.fit_transform(X) for scaler, X in zip(self.scalers_, X_views, strict=False)
         ]
 
-        # 3. 为每个视图构建相似度矩阵（亲和矩阵）
+        # 3. Build a similarity (affinity) matrix for each view.
         affinities = []
         for X in X_scaled:
-            # snf.make_affinity 返回 (N, N) 的相似度矩阵
+            # snf.make_affinity returns an (N, N) similarity matrix.
             aff = snf.make_affinity(X, metric=self.metric, K=self.K, mu=self.mu)
             affinities.append(aff)
 
-        # 4. 融合相似度矩阵（迭代更新）
+        # 4. Fuse the similarity matrices (iterative update).
         self.fused_matrix_ = snf.snf(affinities, K=self.K, t=self.T)
 
-        # 5. 将融合矩阵的每一行作为样本的特征（N × N 维）
+        # 5. Use each row of the fused matrix as a sample's feature vector (N x N dims).
         X_feat = self.fused_matrix_.astype(np.float32)
 
-        # 6. 训练下游分类器
+        # 6. Train the downstream classifier.
         if isinstance(self.downstream_clf, str):
             from classifiers import create_classifier
 
@@ -1075,20 +1115,19 @@ class SNFClassifier(BaseEstimator, ClassifierMixin):
         return self
 
     def predict(self, X_views):
+        """Predict class indices for the per-view matrices in ``X_views``."""
         proba = self.predict_proba(X_views)
         return np.argmax(proba, axis=1)
 
     def predict_proba(self, X_views):
-        """
-        对新视图进行 out-of-sample 投影，得到融合特征，再调用下游分类器。
-        """
+        """Project new views out-of-sample into fused features, then predict."""
         if self.fused_matrix_ is None:
             raise RuntimeError("Model not fitted; call fit().")
 
         N_train = self.fused_matrix_.shape[0]
         X_views[0].shape[0]
 
-        # 1. 分别标准化训练集和测试集（使用训练集的 scaler，无数据泄露）
+        # 1. Standardize training and test sets separately (using the training scaler: no leakage).
         X_train_scaled = [
             scaler.transform(self.X_train_views_[i]) for i, scaler in enumerate(self.scalers_)
         ]
@@ -1096,29 +1135,30 @@ class SNFClassifier(BaseEstimator, ClassifierMixin):
             scaler.transform(X) for scaler, X in zip(self.scalers_, X_views, strict=False)
         ]
 
-        # 2. 将标准化后的训练集和测试集拼接起来，构建联合矩阵
+        # 2. Stack the standardized training and test sets to build a joint matrix.
         combined_views = []
         for i in range(len(X_views)):
             combined = np.vstack([X_train_scaled[i], X_test_scaled[i]])
             combined_views.append(combined)
 
-        # 3. 对联合矩阵计算每个视图的相似度矩阵（与训练时的参数一致）
+        # 3. Compute each view's similarity matrix on the joint matrix (same params as at training).
         affinities_comb = []
         for X in combined_views:
             aff = snf.make_affinity(X, metric=self.metric, K=self.K, mu=self.mu)
             affinities_comb.append(aff)
 
-        # 4. 融合联合相似度矩阵
+        # 4. Fuse the joint similarity matrices.
         fused_comb = snf.snf(affinities_comb, K=self.K, t=self.T)
 
-        # 5. 提取测试集对应的行（最后 N_test 行）
+        # 5. Extract the rows corresponding to the test set (the last N_test rows).
         test_fused = fused_comb[N_train:, :].astype(np.float32)
 
-        # 6. 下游分类器预测概率
+        # 6. Downstream probability prediction.
         proba = self.downstream_.predict_proba(test_fused)
         return proba.astype(np.float32)
 
     def get_params(self, deep=True):
+        """Return this estimator's parameters."""
         return {
             "K": self.K,
             "T": self.T,
@@ -1130,33 +1170,34 @@ class SNFClassifier(BaseEstimator, ClassifierMixin):
         }
 
     def set_params(self, **params):
+        """Set this estimator's parameters."""
         for key, value in params.items():
             setattr(self, key, value)
         return self
 
 
 class _SNFClassifierFixed(SNFClassifier):
-    """修正版的 SNFClassifier，支持 out-of-sample 投影"""
+    """Revised SNFClassifier with out-of-sample projection support."""
 
     def fit(self, X_views, y):
         if not _HAS_SNF:
-            raise ImportError("需要安装 snfpy 才能使用 SNF。请执行 'pip install snfpy'")
+            raise ImportError("snfpy is required to use SNF. Install with 'pip install snfpy'.")
         self.X_train_views_ = [X.copy() for X in X_views]
         self.classes_ = np.unique(y)
-        # 标准化训练视图
+        # Standardize the training views.
         self.scalers_ = [StandardScaler() for _ in X_views]
         X_scaled = [
             scaler.fit_transform(X) for scaler, X in zip(self.scalers_, X_views, strict=False)
         ]
-        # 构建相似度矩阵
+        # Build similarity matrices.
         affinities = []
         for X in X_scaled:
             aff = snf.make_affinity(X, metric="euclidean", K=self.K, mu=0.5)
             affinities.append(aff)
         self.fused_matrix_ = snf.snf(affinities, K=self.K, t=self.T)
-        # 特征
+        # Features.
         X_feat = self.fused_matrix_.astype(np.float32)
-        # 下游分类器
+        # Downstream classifier.
         if isinstance(self.downstream_clf, str):
             from classifiers import create_classifier
 
@@ -1169,66 +1210,67 @@ class _SNFClassifierFixed(SNFClassifier):
         return self
 
     def predict_proba(self, X_views):
-        # out-of-sample 投影：将新样本与训练集拼接，计算融合矩阵，提取新样本对应的行
+        # Out-of-sample projection: stack new samples with the training set, compute the fused
+        # matrix, then extract the rows corresponding to the new samples.
         N_train = self.fused_matrix_.shape[0]
         X_views[0].shape[0]
-        # 标准化新视图
+        # Standardize the new views.
         X_test_scaled = [
             scaler.transform(X) for scaler, X in zip(self.scalers_, X_views, strict=False)
         ]
-        # 拼接训练集和测试集
+        # Stack training and test sets.
         combined_views = []
         for v_idx in range(len(X_views)):
             np.vstack([self.X_train_views_[v_idx], X_views[v_idx]])
-            # 重新标准化（使用整体标准化，或者用训练集的 scaler 映射后再拼接？）
-            # 为了保证一致性，对整体进行标准化（但不应该使用测试集信息来 fit scaler，有泄漏风险）
-            # 更好的方法：使用训练集的 scaler 分别变换训练和测试，然后拼接标准化后的数据。
+            # Re-standardize (global standardization, or map via the training scaler then stack?).
+            # For consistency, standardize the whole stack. But fitting the scaler on the combined
+            # set would leak test information into the scaler. Better: transform training and test
+            # separately with the training scaler, then stack the standardized data.
             X_train_scaled = self.scalers_[v_idx].transform(self.X_train_views_[v_idx])
             X_test_scaled = self.scalers_[v_idx].transform(X_views[v_idx])
             X_comb_scaled = np.vstack([X_train_scaled, X_test_scaled])
             combined_views.append(X_comb_scaled)
-        # 计算所有样本的相似度矩阵
+        # Compute the similarity matrix over all samples.
         affinities_comb = []
         for X in combined_views:
             aff = snf.make_affinity(X, metric="euclidean", K=self.K, mu=0.5)
             affinities_comb.append(aff)
         fused_comb = snf.snf(affinities_comb, K=self.K, t=self.T)
-        # 提取测试集对应的行（即最后 N_test 行）
+        # Extract the rows corresponding to the test set (the last N_test rows).
         test_fused = fused_comb[N_train:, :].astype(np.float32)
-        # 下游预测
+        # Downstream prediction.
         proba = self.downstream_.predict_proba(test_fused)
         return proba.astype(np.float32)
 
 
-# 将修正后的 SNFClassifier 作为最终实现
+# Use the fixed SNFClassifier as the final implementation.
 SNFClassifier = _SNFClassifierFixed
 
 
-# ---------- 分类器创建函数 ----------
+# ---------- Classifier factory ----------
 def create_classifier(
     name: str,
     random_state: int = 42,
     **kwargs,
 ) -> BaseEstimator:
-    """
-    根据名称创建分类器实例，自动配置类别不平衡处理。
+    """Create a classifier instance by name, with imbalance handling configured.
 
-    Parameters
-    ----------
-    name : str
-        分类器标识符: 'rf', 'svm', 'xgb', 'lgb', 'catboost',
-        'knn', 'lr', 'lasso', 'elasticnet', 'nb', 'lda', 'cart', 'mlp',
-        'dnn', 'extratrees', 'gbdt', 'bls', 'tbls',
-        'block_plsda', 'block_splsda', 'mogonet', 'mogonet_nn',
-        'mofa', 'diablo', 'snf'
-    random_state : int
-        随机种子，用于可复现性。
-    **kwargs
-        传递给分类器构造函数的额外参数，会覆盖默认值。
+    Args:
+        name: Classifier identifier. One of 'rf', 'svm', 'xgb', 'lgb',
+            'catboost', 'knn', 'lr', 'lasso', 'elasticnet', 'nb', 'lda',
+            'cart', 'mlp', 'dnn', 'extratrees', 'gbdt', 'bls', 'tbls',
+            'block_plsda', 'block_splsda', 'mogonet', 'mogonet_nn', 'mofa',
+            'diablo', 'snf'.
+        random_state: Random seed for reproducibility.
+        **kwargs: Extra parameters forwarded to the classifier constructor;
+            these override the defaults.
 
-    Returns
-    -------
-    clf : 分类器实例，符合 sklearn Estimator 接口。
+    Returns:
+        A classifier instance conforming to the sklearn estimator interface.
+
+    Raises:
+        ImportError: The requested classifier's optional dependency is not installed.
+        ValueError: ``name`` is not a known classifier identifier.
     """
     name = name.lower()
 
@@ -1256,17 +1298,17 @@ def create_classifier(
 
     if name == "xgb":
         if not _HAS_XGB:
-            raise ImportError("XGBoost 未安装。请使用 `pip install xgboost` 安装。")
+            raise ImportError("XGBoost is not installed. Install with `pip install xgboost`.")
         return BalancedXGBClassifier(random_state=random_state, **kwargs)
 
     if name == "lgb":
         if not _HAS_LGB:
-            raise ImportError("LightGBM 未安装。请使用 `pip install lightgbm` 安装。")
+            raise ImportError("LightGBM is not installed. Install with `pip install lightgbm`.")
         return BalancedLGBMClassifier(random_state=random_state, **kwargs)
 
     if name == "catboost":
         if not _HAS_CATBOOST:
-            raise ImportError("CatBoost 未安装。请使用 `pip install catboost` 安装。")
+            raise ImportError("CatBoost is not installed. Install with `pip install catboost`.")
         return BalancedCatBoostClassifier(random_state=random_state, **kwargs)
 
     if name == "knn":
@@ -1389,7 +1431,9 @@ def create_classifier(
 
     if name == "bls":
         if not _HAS_BLS:
-            raise ImportError("BLS 模块未找到。请确保 bls.py 在当前目录或 models/ 下。")
+            raise ImportError(
+                "BLS module not found. Ensure bls.py is in the current directory or models/."
+            )
         params = {
             "n_feature_groups": 10,
             "n_feature_nodes_per_group": 100,
@@ -1406,7 +1450,9 @@ def create_classifier(
 
     if name == "tbls":
         if not _HAS_TBLS:
-            raise ImportError("TBLS 模块未找到。请确保 tbls.py 在当前目录或 models/ 下。")
+            raise ImportError(
+                "TBLS module not found. Ensure tbls.py is in the current directory or models/."
+            )
         params = {
             "n_map_trees": 20,
             "n_enhance_trees": 20,
@@ -1427,7 +1473,7 @@ def create_classifier(
             "random_state": random_state,
         }
         params.update(kwargs)
-        # 兼容旧参数名
+        # Backward-compatible legacy parameter names.
         if "n_map_nodes" in params and "n_map_trees" not in kwargs:
             params["n_map_trees"] = params.pop("n_map_nodes")
         if "n_enhance_nodes" in params and "n_enhance_trees" not in kwargs:
@@ -1437,7 +1483,7 @@ def create_classifier(
         params.pop("tree_params", None)
         return TBLS(**params)
 
-    # 多视图分类器
+    # Multi-view classifiers.
     if name == "block_plsda":
         return MixOmicsBlockPLSDA(mode="plsda", ncomp=2, random_state=random_state, **kwargs)
     if name == "block_splsda":
@@ -1446,8 +1492,8 @@ def create_classifier(
         )
     if name == "mogonet":
         if not _HAS_TORCH:
-            raise ImportError("需要安装 PyTorch 才能使用 MOGONET。")
-        # 使用论文推荐参数：lr=1e-4, hidden_dim=64, k_neighbors=5（可通过 kwargs 覆盖）
+            raise ImportError("PyTorch is required to use MOGONET.")
+        # Paper-recommended parameters: lr=1e-4, hidden_dim=64, k_neighbors=5 (overridable via kwargs).
         return MOGONETClassifier(
             hidden_dim=64,
             epochs=100,
@@ -1462,7 +1508,7 @@ def create_classifier(
         )
     if name == "mogonet_nn":
         if not _HAS_TORCH:
-            raise ImportError("需要安装 PyTorch 才能使用 MOGONET_NN。")
+            raise ImportError("PyTorch is required to use MOGONET_NN.")
         return MOGONETClassifier(
             hidden_dim=64,
             epochs=200,
@@ -1476,7 +1522,7 @@ def create_classifier(
             **kwargs,
         )
 
-    # 新增算法
+    # Additional algorithms.
     if name == "mofa":
         return MOFAClassifier(
             n_factors=20, downstream_clf="rf", random_state=random_state, **kwargs
@@ -1489,9 +1535,9 @@ def create_classifier(
         return SNFClassifier(K=20, T=20, downstream_clf="rf", random_state=random_state, **kwargs)
 
     raise ValueError(
-        f"未知的分类器 '{name}'. 可选: 'rf', 'svm', 'xgb', 'lgb', 'catboost', "
+        f"Unknown classifier '{name}'. Options: 'rf', 'svm', 'xgb', 'lgb', 'catboost', "
         "'knn', 'lr', 'lasso', 'elasticnet', 'nb', 'lda', 'cart', 'mlp', 'dnn', "
         "'extratrees', 'gbdt', 'bls', 'tbls', "
         "'block_plsda', 'block_splsda', 'mogonet', 'mogonet_nn', "
-        "'mofa', 'diablo', 'snf'"
+        "'mofa', 'diablo', 'snf'."
     )
