@@ -10,5 +10,5 @@ a node is only `IMPLEMENTED`.
 
 | Plan | Node | Hard predecessors | Status | Implementation commit | Report |
 |------|------|-------------------|--------|-----------------------|--------|
-| `01-tbls-graph-ifs-strategy-and-grid-search.md` | `01-tbls-graph-ifs-grid` | none | `IMPLEMENTED` | `8effeaf` (master) | *(none - flagged: Plan 01 has no acceptance report; reviewer to close)* |
-| `02-multiview-cca-gfcca-fusion-convention.md` | `02-multiview-fusion` | `01-tbls-graph-ifs-grid` | `IMPLEMENTED` | (see `git log`, master) | `reports/02-multiview-cca-gfcca-fusion-convention.md` |
+| `01-tbls-graph-ifs-strategy-and-grid-search.md` | `01-tbls-graph-ifs-grid` | none | `ACCEPTED` | `8effeaf` (master) | `reports/01-tbls-graph-ifs-strategy-and-grid-search.md` |
+| `02-multiview-cca-gfcca-fusion-convention.md` | `02-multiview-fusion` | `01-tbls-graph-ifs-grid` | `ACCEPTED` | `8effeaf`..`2b8c258` (master; `2b8c258` = reviewer fix for the `view_groups=None` default bug) | `reports/02-multiview-cca-gfcca-fusion-convention.md` (implementer), `reports/02-multiview-cca-gfcca-fusion-convention-review.md` (reviewer, ACCEPTED) |
