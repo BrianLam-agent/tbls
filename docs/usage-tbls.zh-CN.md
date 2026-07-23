@@ -92,6 +92,30 @@ TBLS(use_if_weights=True, graph_gamma=0.1, graph_strategy="knn", if_strategy="ge
 
 `discriminative_beta`、`if_delta` 与 `if_min_weight` 仅参数化默认（`"discriminative"`/`"simple"`）公式；当对应策略设为 `"knn"`/`"geib"` 时它们被忽略。不支持的策略字符串会在 `fit` 时抛出 `ValueError`。
 
+## 消融变体（GTBLS/FTBLS/GFTBLS）
+
+图项（`graph_gamma`，即"G"轴）与模糊 IFS 项（`use_if_weights`，即"F"轴）是两个相互独立的开关，因此四种消融组合均可直接在 `TBLS` 上实现：
+
+| 变体 | `use_if_weights` | `graph_gamma` | 含义 |
+|---|---|---|---|
+| `tbls` | `False` | `0.0` | 两者皆无--朴素树 BLS。 |
+| `gtbls` | `False` | `> 0` | 仅图正则化。 |
+| `ftbls` | `True` | `0.0` | 仅模糊 IFS 样本加权。 |
+| `gftbls` | `True` | `> 0` | 两者皆开（当前调优后的默认组合）。 |
+
+用于消融研究时，`build_tbls_variant` 是一个轻便的工厂函数，按名称选取 `(use_if_weights, graph_gamma)` 组合，而非新增第三个可能与现有参数冲突的构造参数（那会令同一状态有两种表达方式，并使 `clone()`/`get_params()` 的往返复杂化）：
+
+```python
+from tbls import build_tbls_variant
+
+gtbls = build_tbls_variant("gtbls", graph_gamma=0.2, n_map_trees=15)
+ftbls = build_tbls_variant("ftbls", n_map_trees=15)
+gftbls = build_tbls_variant("gftbls", graph_gamma=0.2, n_map_trees=15)
+plain = build_tbls_variant("tbls", n_map_trees=15)
+```
+
+该工厂会原样转发其余 `TBLS` 构造关键字（`n_map_trees`、`graph_strategy`、`if_strategy`、`random_state` 等）。在以下情形它会抛出 `ValueError`：未知变体；对启用图的变体（`"gtbls"`/`"gftbls"`）传入 `graph_gamma <= 0`（非正值会静默禁用图项，使消融失去意义）；以及显式传入 `use_if_weights`（该工厂的全部意义即在于由 `variant` 明确设定此项）。
+
 ## 增量层
 
 ```python

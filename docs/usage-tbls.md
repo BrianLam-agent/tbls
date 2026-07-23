@@ -115,6 +115,42 @@ TBLS(use_if_weights=True, graph_gamma=0.1, graph_strategy="knn", if_strategy="ge
 corresponding strategy is set to `"knn"`/`"geib"`. An unsupported strategy
 string raises `ValueError` on `fit`.
 
+## Ablation variants (GTBLS/FTBLS/GFTBLS)
+
+The graph term (`graph_gamma`, the "G" axis) and the fuzzy-IFS term
+(`use_if_weights`, the "F" axis) are two independent switches, so all four
+ablation combinations are reachable directly on `TBLS`:
+
+| Variant | `use_if_weights` | `graph_gamma` | Meaning |
+|---|---|---|---|
+| `tbls` | `False` | `0.0` | Neither -- plain tree BLS. |
+| `gtbls` | `False` | `> 0` | Graph regularization only. |
+| `ftbls` | `True` | `0.0` | Fuzzy-IFS sample weighting only. |
+| `gftbls` | `True` | `> 0` | Both (today's tuned default combination). |
+
+For ablation studies, `build_tbls_variant` is a thin convenience factory that
+picks the `(use_if_weights, graph_gamma)` pair for a name rather than adding a
+third, potentially-conflicting constructor parameter (which would create two
+ways to express the same state and complicate `clone()`/`get_params()`
+round-tripping):
+
+```python
+from tbls import build_tbls_variant
+
+gtbls = build_tbls_variant("gtbls", graph_gamma=0.2, n_map_trees=15)
+ftbls = build_tbls_variant("ftbls", n_map_trees=15)
+gftbls = build_tbls_variant("gftbls", graph_gamma=0.2, n_map_trees=15)
+plain = build_tbls_variant("tbls", n_map_trees=15)
+```
+
+The factory forwards any other `TBLS` constructor keyword (`n_map_trees`,
+`graph_strategy`, `if_strategy`, `random_state`, ...) unchanged. It raises
+`ValueError` on an unknown variant, on `graph_gamma <= 0` for a graph-enabled
+variant (`"gtbls"`/`"gftbls"` -- a non-positive value would silently disable
+the graph term and defeat the ablation), and if `use_if_weights` is passed
+explicitly (the factory's whole purpose is to set that unambiguously from
+`variant`).
+
 ## Incremental layers
 
 ```python
