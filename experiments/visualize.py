@@ -14,10 +14,15 @@ structured log produced by :mod:`experiments.train` via
   these raw-array plots since the side-file is not produced for them -- see
   ``docs/usage-experiments-cli.md``).
 
-When multiple ``--dir`` paths are given, each run is tagged (by its dataset /
-model / run timestamp parsed from the JSONL ``run_started`` event) and the
-runs are overlaid/faceted on the same figures so ablation variants or
-grid-search runs can be compared at a glance.
+When multiple ``--dir`` paths are given, each run is tagged (by its YAML
+``run_name`` if present in the ``run_started`` event, or by
+``{model}_{dataset}/{timestamp}`` as a fallback) and the runs are overlaid on
+ROC/PR/per-fold-bar/confusion figures so ablation variants or grid-search runs
+can be compared at a glance. ROC and PR curves are split **one PNG per cohort**
+(the meaningful comparison is "run A vs run B on the same cohort", not
+"run A's curve across cohorts"), so N cohorts across M runs produce N ROC files
++ N PR files, each with M overlaid curves; per-fold bars, the grid-search summary,
+and the confusion matrices keep their file layout as before.
 
 Run with::
 
@@ -67,14 +72,22 @@ for _p in (_REPO_ROOT, _REPO_ROOT / "experiments"):
 def _run_label(run_started: dict[str, Any] | None, run_dir: Path) -> str:
     """Build a short, stable run label from the ``run_started`` event.
 
+    Prefers the human-chosen ``run_name`` field (set in the YAML's top-level
+    ``run_name:``); if absent, falls back to ``{model}_{dataset}/{timestamp}``
+    so older runs without a ``run_name`` still tag sensibly.
+
     Args:
         run_started: The parsed ``run_started`` event dict, or ``None``.
         run_dir: The run directory (used as a fallback label).
 
     Returns:
-        A label like ``tbls_biomedical_larger/20260724_034914``.
+        A run label -- either the YAML ``run_name`` or the auto-generated
+        ``{model}_{dataset}/{timestamp}`` fallback.
     """
     if run_started is not None:
+        run_name = run_started.get("run_name")
+        if run_name:
+            return str(run_name)
         ds = run_started.get("dataset", "?")
         mdl = run_started.get("model", "?")
         return f"{mdl}_{ds}/{run_dir.name}"
@@ -154,12 +167,13 @@ def _metric_columns(df: pd.DataFrame) -> list[str]:
     return sorted(out)
 
 
-def plot_per_fold_bars(fold_df: pd.DataFrame, out_dir: Path) -> Path:
+def plot_per_fold_bars(fold_df: pd.DataFrame, out_dir: Path, dpi: int = 300) -> Path:
     """Bar plot of ``balanced_accuracy`` and ``mcc`` per cohort, grouped by run.
 
     Args:
         fold_df: Fold rows across all runs (must include a ``run`` tag column).
         out_dir: Directory to write the PNG into (created if missing).
+        dpi: PNG resolution (dots per inch).
 
     Returns:
         Path to the written PNG.
@@ -184,17 +198,18 @@ def plot_per_fold_bars(fold_df: pd.DataFrame, out_dir: Path) -> Path:
     fig.suptitle("Per-fold metrics across cohorts (mean over folds)")
     fig.tight_layout()
     path = out_dir / "per_fold_metrics.png"
-    fig.savefig(path, dpi=120)
+    fig.savefig(path, dpi=dpi)
     plt.close(fig)
     return path
 
 
-def plot_grid_summary(fold_df: pd.DataFrame, out_dir: Path) -> Path | None:
+def plot_grid_summary(fold_df: pd.DataFrame, out_dir: Path, dpi: int = 300) -> Path | None:
     """Plot the primary metric vs. each swept hyperparameter (one subplot each).
 
     Args:
         fold_df: Fold rows across all runs (grid rows carry ``param_<name>``).
         out_dir: Directory to write the PNG into (created if missing).
+        dpi: PNG resolution (dots per inch).
 
     Returns:
         Path to the written PNG, or ``None`` if no grid rows were present.
@@ -230,7 +245,7 @@ def plot_grid_summary(fold_df: pd.DataFrame, out_dir: Path) -> Path | None:
     fig.suptitle("Grid-search: metric vs swept hyperparameter")
     fig.tight_layout()
     path = out_dir / "grid_search_summary.png"
-    fig.savefig(path, dpi=120)
+    fig.savefig(path, dpi=dpi)
     plt.close(fig)
     return path
 
@@ -355,85 +370,119 @@ def _cohort_predictions(
     return {k: {a: np.concatenate(v) for a, v in slot.items()} for k, slot in by_cohort.items()}
 
 
-def plot_roc(all_runs: dict[str, Path], out_dir: Path) -> Path | None:
-    """Overlay ROC curves for every cohort across every run on one figure.
+def plot_roc(all_runs: dict[str, Path], out_dir: Path, dpi: int = 300) -> list[Path]:
+    """Render one ROC PNG per cohort (each run overlaid on the same axes).
+
+    Per-cohort split is the right granularity for ablation comparisons: the
+    meaningful comparison is "how does run A's ROC vs run B's ROC look on the
+    same cohort", not "run A's curve on cohort X vs run A's curve on cohort Y".
+    The old single-figure-per-run version crammed every (run, cohort) pair into
+    one legend and produced an unreadable comparison.
 
     Args:
-        all_runs: Mapping of run tag -> run directory.
-        out_dir: Directory to write the PNG into (created if missing).
+        all_runs: Mapping of run label -> run directory.
+        out_dir: Directory to write per-cohort PNGs into (created if missing).
+        dpi: PNG resolution.
 
     Returns:
-        Path to the written PNG, or ``None`` if no run had raw predictions.
+        Paths to the written PNGs (one per cohort that had predictions), or
+        an empty list if no run produced raw predictions.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
-    fig, ax = plt.subplots(figsize=(7, 7))
-    any_curve = False
+    # Collect (run -> cohort -> arrays) first so we can split per cohort.
+    per_run: dict[str, dict[str, dict[str, np.ndarray]]] = {}
+    cohorts: set[str] = set()
     for run_tag, run_dir in all_runs.items():
         preds = _cohort_predictions(run_dir, run_tag)
-        for (cohort), arrays in preds.items():
+        per_run[run_tag] = {c: a for (_rt, c), a in preds.items()}
+        cohorts.update(per_run[run_tag].keys())
+    paths: list[Path] = []
+    for cohort in sorted(cohorts):
+        fig, ax = plt.subplots(figsize=(7, 7))
+        drew = False
+        for run_tag in sorted(per_run):
+            arrays = per_run[run_tag].get(cohort)
+            if arrays is None:
+                continue
             roc = _cohort_roc(arrays["y_true"], arrays["y_score"])
             if roc is None:
                 continue
             fpr, tpr, auc = roc
-            ax.plot(fpr, tpr, label=f"{cohort} ({run_tag}) AUC={auc:.3f}")
-            any_curve = True
-    if not any_curve:
+            ax.plot(fpr, tpr, label=f"{run_tag} AUC={auc:.3f}")
+            drew = True
+        if not drew:
+            plt.close(fig)
+            continue
+        ax.plot([0, 1], [0, 1], color="grey", linestyle="--", linewidth=1, label="chance")
+        ax.set_xlabel("False positive rate")
+        ax.set_ylabel("True positive rate")
+        ax.set_title(f"ROC curves — cohort {cohort} (folds concatenated)")
+        ax.legend(fontsize=9)
+        fig.tight_layout()
+        path = out_dir / f"roc_{cohort}.png"
+        fig.savefig(path, dpi=dpi)
         plt.close(fig)
-        return None
-    ax.plot([0, 1], [0, 1], color="grey", linestyle="--", linewidth=1, label="chance")
-    ax.set_xlabel("False positive rate")
-    ax.set_ylabel("True positive rate")
-    ax.set_title("ROC curves (per cohort, folds concatenated)")
-    ax.legend(fontsize=8)
-    fig.tight_layout()
-    path = out_dir / "roc_curves.png"
-    fig.savefig(path, dpi=120)
-    plt.close(fig)
-    return path
+        paths.append(path)
+    return paths
 
 
-def plot_pr(all_runs: dict[str, Path], out_dir: Path) -> Path | None:
-    """Overlay PR curves for every cohort across every run on one figure.
+def plot_pr(all_runs: dict[str, Path], out_dir: Path, dpi: int = 300) -> list[Path]:
+    """Render one PR PNG per cohort (each run overlaid on the same axes).
+
+    Same per-cohort rationale as :func:`plot_roc`.
 
     Args:
-        all_runs: Mapping of run tag -> run directory.
-        out_dir: Directory to write the PNG into (created if missing).
+        all_runs: Mapping of run label -> run directory.
+        out_dir: Directory to write per-cohort PNGs into (created if missing).
+        dpi: PNG resolution.
 
     Returns:
-        Path to the written PNG, or ``None`` if no run had raw predictions.
+        Paths to the written PNGs (one per cohort that had predictions), or
+        an empty list if no run produced raw predictions.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
-    fig, ax = plt.subplots(figsize=(7, 7))
-    any_curve = False
+    per_run: dict[str, dict[str, dict[str, np.ndarray]]] = {}
+    cohorts: set[str] = set()
     for run_tag, run_dir in all_runs.items():
         preds = _cohort_predictions(run_dir, run_tag)
-        for (cohort), arrays in preds.items():
+        per_run[run_tag] = {c: a for (_rt, c), a in preds.items()}
+        cohorts.update(per_run[run_tag].keys())
+    paths: list[Path] = []
+    for cohort in sorted(cohorts):
+        fig, ax = plt.subplots(figsize=(7, 7))
+        drew = False
+        for run_tag in sorted(per_run):
+            arrays = per_run[run_tag].get(cohort)
+            if arrays is None:
+                continue
             pr = _cohort_pr(arrays["y_true"], arrays["y_score"])
             if pr is None:
                 continue
             recall, precision, ap = pr
-            ax.plot(recall, precision, label=f"{cohort} ({run_tag}) AP={ap:.3f}")
-            any_curve = True
-    if not any_curve:
+            ax.plot(recall, precision, label=f"{run_tag} AP={ap:.3f}")
+            drew = True
+        if not drew:
+            plt.close(fig)
+            continue
+        ax.set_xlabel("Recall")
+        ax.set_ylabel("Precision")
+        ax.set_title(f"Precision-recall curves — cohort {cohort} (folds concatenated)")
+        ax.legend(fontsize=9)
+        fig.tight_layout()
+        path = out_dir / f"pr_{cohort}.png"
+        fig.savefig(path, dpi=dpi)
         plt.close(fig)
-        return None
-    ax.set_xlabel("Recall")
-    ax.set_ylabel("Precision")
-    ax.set_title("Precision-recall curves (per cohort, folds concatenated)")
-    ax.legend(fontsize=8)
-    fig.tight_layout()
-    path = out_dir / "pr_curves.png"
-    fig.savefig(path, dpi=120)
-    plt.close(fig)
-    return path
+        paths.append(path)
+    return paths
 
 
-def plot_confusion(all_runs: dict[str, Path], out_dir: Path) -> list[Path]:
+def plot_confusion(all_runs: dict[str, Path], out_dir: Path, dpi: int = 300) -> list[Path]:
     """Render a confusion-matrix heatmap per run/cohort (all folds concatenated).
 
     Args:
         all_runs: Mapping of run tag -> run directory.
         out_dir: Directory to write the PNGs into (created if missing).
+        dpi: PNG resolution (dots per inch).
 
     Returns:
         Paths to the written PNGs (one per run that had raw predictions).
@@ -463,7 +512,7 @@ def plot_confusion(all_runs: dict[str, Path], out_dir: Path) -> list[Path]:
         fig.tight_layout()
         safe = run_tag.replace("/", "_").replace(":", "_")
         path = out_dir / f"confusion_{safe}.png"
-        fig.savefig(path, dpi=120)
+        fig.savefig(path, dpi=dpi)
         plt.close(fig)
         paths.append(path)
     return paths
@@ -480,6 +529,11 @@ def visualize(
         None,
         "--output-dir",
         help="Where PNGs are written (default: plots/ next to the first --dir).",
+    ),
+    dpi: int = typer.Option(
+        300,
+        "--dpi",
+        help="PNG resolution in dots per inch (default 300 for print quality).",
     ),
 ) -> None:
     """Render per-fold / grid-search / ROC / PR / confusion plots from run logs."""
@@ -516,17 +570,23 @@ def visualize(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # Scalar-metric plots (always in scope -- only need FoldCompletedEvent).
-    p_bars = plot_per_fold_bars(fold_df, out_dir)
+    p_bars = plot_per_fold_bars(fold_df, out_dir, dpi=dpi)
     typer.echo(f"wrote {p_bars}")
-    p_grid = plot_grid_summary(fold_df, out_dir)
+    p_grid = plot_grid_summary(fold_df, out_dir, dpi=dpi)
     typer.echo(f"wrote {p_grid}" if p_grid else "grid-search summary: skipped (no grid rows)")
 
     # Raw-prediction plots (need the .npz side-file; non-grid runs only).
-    p_roc = plot_roc(all_runs, out_dir)
-    typer.echo(f"wrote {p_roc}" if p_roc else "ROC curves: skipped (no npz predictions found)")
-    p_pr = plot_pr(all_runs, out_dir)
-    typer.echo(f"wrote {p_pr}" if p_pr else "PR curves: skipped (no npz predictions found)")
-    p_cm = plot_confusion(all_runs, out_dir)
+    p_roc = plot_roc(all_runs, out_dir, dpi=dpi)
+    for p in p_roc:
+        typer.echo(f"wrote {p}")
+    if not p_roc:
+        typer.echo("ROC curves: skipped (no npz predictions found)")
+    p_pr = plot_pr(all_runs, out_dir, dpi=dpi)
+    for p in p_pr:
+        typer.echo(f"wrote {p}")
+    if not p_pr:
+        typer.echo("PR curves: skipped (no npz predictions found)")
+    p_cm = plot_confusion(all_runs, out_dir, dpi=dpi)
     for p in p_cm:
         typer.echo(f"wrote {p}")
     if not p_cm:
