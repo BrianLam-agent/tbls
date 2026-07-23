@@ -23,7 +23,7 @@ from .gfcca import (
     GraphFuzzyKCCA,
     build_gfcca_features,
 )
-from .tbls import TBLS
+from .tbls import TBLS, build_tbls_variant
 
 __version__ = "0.1.0"  # kept in sync with pyproject.toml; see docs/release-process.md
 __copyright__ = "Copyright 2026 BrianLam"
@@ -36,5 +36,6 @@ __all__ = [
     "PairwiseKCCA",
     "build_cca_features",
     "build_gfcca_features",
+    "build_tbls_variant",
     "project_cca_features",
 ]

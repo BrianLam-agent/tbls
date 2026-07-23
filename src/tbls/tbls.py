@@ -18,7 +18,7 @@ Kernel, IFS and graph-Laplacian helpers live in the sibling private modules
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 import numpy as np
 from numpy.typing import NDArray
@@ -420,3 +420,60 @@ class TBLS(BaseEstimator, ClassifierMixin):  # type: ignore[misc]
         """Predict class labels."""
         prob = self.predict_proba(X)
         return self.classes_[np.argmax(prob, axis=1)]
+
+
+def build_tbls_variant(
+    variant: Literal["tbls", "gtbls", "ftbls", "gftbls"],
+    graph_gamma: float = 0.1,
+    **kwargs: Any,
+) -> TBLS:
+    """Build a TBLS configured for one ablation variant.
+
+    TBLS already exposes the graph and fuzzy-IFS terms as two independent
+    switches (``use_if_weights: bool``, ``graph_gamma: float`` where ``0``
+    disables it) -- see ``docs/usage-tbls.md``. This factory is a convenience
+    for ablation studies (GTBLS = graph only, FTBLS = fuzzy/IFS only, GFTBLS =
+    both, TBLS = neither); it does not add new state to the estimator, only
+    picks the ``(use_if_weights, graph_gamma)`` combination for a name.
+
+    Args:
+        variant: One of "tbls" (neither), "gtbls" (graph only), "ftbls"
+            (fuzzy/IFS only), "gftbls" (both -- today's tuned default
+            combination).
+        graph_gamma: Graph regularization weight to use when the variant
+            enables the graph term ("gtbls"/"gftbls"). Ignored (forced to
+            0.0) for "tbls"/"ftbls". Must be > 0 if provided for a
+            graph-enabled variant (else the graph term would silently be a
+            no-op, defeating the point of the ablation).
+        **kwargs: Forwarded to the ``TBLS`` constructor (e.g.
+            n_map_trees, graph_strategy, if_strategy, random_state).
+            Must not include ``use_if_weights`` or ``graph_gamma`` --
+            raises ValueError if either is passed (this factory's whole
+            purpose is to set them unambiguously from ``variant``).
+
+    Returns:
+        A configured, unfitted ``TBLS`` instance.
+
+    Raises:
+        ValueError: Unknown ``variant``, ``graph_gamma <= 0`` for a
+            graph-enabled variant, or ``use_if_weights``/``graph_gamma``
+            passed in ``kwargs``.
+    """
+    _known_variants = {"tbls", "gtbls", "ftbls", "gftbls"}
+    if variant not in _known_variants:
+        raise ValueError(
+            f"Unknown variant {variant!r}. Expected one of 'tbls', 'gtbls', 'ftbls', 'gftbls'."
+        )
+    if "use_if_weights" in kwargs or "graph_gamma" in kwargs:
+        raise ValueError(
+            "build_tbls_variant derives `use_if_weights` and `graph_gamma` "
+            f"from `variant` ({variant!r}); do not pass either in kwargs."
+        )
+    graph_enabled = variant in ("gtbls", "gftbls")
+    if graph_enabled and graph_gamma <= 0:
+        raise ValueError(
+            f"graph_gamma must be > 0 for graph-enabled variant {variant!r}, got {graph_gamma}."
+        )
+    use_if_weights = variant in ("ftbls", "gftbls")
+    effective_gamma = graph_gamma if graph_enabled else 0.0
+    return TBLS(use_if_weights=use_if_weights, graph_gamma=effective_gamma, **kwargs)
