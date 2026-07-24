@@ -72,9 +72,8 @@ All classifiers (`TBLS`, `BroadLearningSystem`) are standard
 | [`docs/usage-tbls.md`](docs/usage-tbls.md) | `TBLS` tutorial: parameters, IFS/graph regularization, incremental layers, reproducibility, performance notes. |
 | [`docs/usage-bls.md`](docs/usage-bls.md) | `BroadLearningSystem` tutorial: parameters, class imbalance, Woodbury incremental enhancement. |
 | [`docs/usage-cca-gfcca.md`](docs/usage-cca-gfcca.md) | `PairwiseKCCA`/`GraphFuzzyKCCA` tutorial: two-view API, multi-view pipelines, why there's no `Pipeline` support. |
-| [`docs/usage-experiments-cli.md`](docs/usage-experiments-cli.md) | Full reference for the `experiments/` pipeline: training/visualize/compare CLIs, YAML config (incl. `run_name`, `grid:`), `--dir` resolution rule, every output file, the JSONL event schema, and `feature_selection`/`resampling` enumerations. |
+| [`docs/experiments/index.md`](docs/experiments/index.md) | Experiments pipeline (one-stop): 5-step quick start + split pages — datasets, YAML config reference, all `model.name` values, `train.py`/`visualize.py`/`compare.py` CLIs, grid search, output files, and the `TBLS` PR-cliff explainer. |
 | [`docs/usage-multiview-fusion.md`](docs/usage-multiview-fusion.md) | Multi-view pkl data contract and CCA/GFCCA fusion-group config (convention only -- not yet implemented; see `docs/plan/02-*`). |
-| [`docs/usage-figures-and-calibration.md`](docs/usage-figures-and-calibration.md) | Why `TBLS`'s uncalibrated `predict_proba` produces sharp PR-curve cliffs (the `0.5` score-density plateau), the math, and a self-contained reproducer — read when a PR plot looks pathological. |
 | [`docs/experimental-modules.md`](docs/experimental-modules.md) | What works and what doesn't in `tbls.genoptim`/`tbls.ensemble`, and why. |
 | [`docs/development.md`](docs/development.md) | Local dev setup, conventions, how to add a new estimator, docs/translation structure. |
 | [`docs/release-process.md`](docs/release-process.md) | Semantic versioning, changelog generation, the tag-triggered CI/CD release pipeline, PyPI publishing. |

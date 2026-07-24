@@ -44,7 +44,7 @@ written to a temporary directory exactly as the CLI would -- the ranked rows
 printed below are the same rows it writes to the ``GridSummary`` sheet.
 
 See ``docs/usage-tbls.md`` for the full TBLS API and
-``docs/usage-experiments-cli.md`` for the training CLI (including ``--grid``).
+``docs/experiments/index.md`` for the training CLI (including ``--grid``).
 """
 
 from __future__ import annotations

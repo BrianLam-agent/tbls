@@ -186,7 +186,7 @@ experiments/evaluate.py::TBLSResultSaver (writes results_dir/.../*.xlsx)
 
 `experiments/train.py` wires this into a k-fold cross-validation loop driven
 by a YAML config (`experiments/configs/default.yaml`) with typer CLI
-overrides. See [`usage-experiments-cli.md`](./usage-experiments-cli.md) for the full CLI/YAML/output reference, and [`usage-figures-and-calibration.md`](./usage-figures-and-calibration.md) for why `TBLS` produces a sharp PR-curve "cliff" (the uncalibrated ridge output's `0.5` score-density plateau) and what future calibration work would resolve it.
+overrides. See [`experiments/index.md`](./experiments/index.md) for the full pipeline documentation (one-stop: 5-step quick start + split pages on datasets, YAML config, every `model.name`, the three CLIs, grid search, output files, and the `TBLS` PR-cliff explanation).
 
 ## 8. Release engineering
 
@@ -203,8 +203,9 @@ to PyPI via Trusted Publishing (OIDC, no stored API token).
 - Want to use an estimator? See `usage-tbls.md`, `usage-bls.md`,
   `usage-cca-gfcca.md`.
 - Want to run the training/visualization/comparison CLI against real data? See
-  `usage-experiments-cli.md` (full CLI + YAML + output reference) and
-  `usage-figures-and-calibration.md` (why some `TBLS` PR plots look pathological).
+  [`experiments/index.md`](./experiments/index.md) (5-step quick start + split
+  per-topic pages — datasets, YAML reference, models, CLIs, grid search,
+  outputs, and the `TBLS` PR-curve cliff explainer).
 - Want to contribute code? See [`development.md`](./development.md).
 - Want to understand `genoptim`/`ensemble`'s limitations? See
   [`experimental-modules.md`](./experimental-modules.md).

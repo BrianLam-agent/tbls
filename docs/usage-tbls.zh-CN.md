@@ -149,5 +149,5 @@ grid.fit(X, y)
 ## 性能说明
 
 - 训练开销随 `n_map_trees + n_enhance_trees * (1 + n_increment_layers)` 次回归树拟合增长，并在 `use_if_weights` 或 `graph_gamma > 0` 时额外有一次 `O(n²)` 的核/距离计算。
-- 在新数据集上初次尝试时，宜从小规模起手（`n_map_trees=10, n_enhance_trees=10`、`use_if_weights=False`、`graph_gamma=0.0`）--这正是 `experiments/smoke_run.py` 为在数秒内健全性检查数据集所做的；见 [`usage-experiments-cli.md`](./usage-experiments-cli.zh-CN.md)。
+- 在新数据集上初次尝试时，宜从小规模起手（`n_map_trees=10, n_enhance_trees=10`、`use_if_weights=False`、`graph_gamma=0.0`）--这正是 `experiments/smoke_run.py` 为在数秒内健全性检查数据集所做的；见 [`experiments/index.md`](./experiments/index.md)。
 - RBF 核与图拉普拉斯计算的复杂度在*训练*样本数上为 `O(n²)`；对极大数据集，在启用 `use_if_weights`/`graph_gamma` 前先做子采样。

@@ -196,7 +196,7 @@ output.
 - For a first pass on a new dataset, start small (`n_map_trees=10,
   n_enhance_trees=10`, `use_if_weights=False`, `graph_gamma=0.0`) — this is
   exactly what `experiments/smoke_run.py` does to sanity-check a dataset in
-  seconds; see [`usage-experiments-cli.md`](./usage-experiments-cli.md).
+  seconds; see [`experiments/index.md`](./experiments/index.md).
 - The RBF kernel and graph-Laplacian computations are `O(n²)` in the number
   of *training* samples; for very large datasets, subsample before enabling
   `use_if_weights`/`graph_gamma`.

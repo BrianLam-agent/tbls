@@ -35,7 +35,7 @@ What it does, step by step:
        via :meth:`experiments.evaluate.TBLSEvaluator.calculate_metrics`.
 
 See ``docs/usage-tbls.md`` for the full TBLS API and
-``docs/usage-experiments-cli.md`` for the training CLI.
+``docs/experiments/index.md`` for the training CLI.
 """
 
 from __future__ import annotations

@@ -6,7 +6,7 @@ predictions are finite, non-degenerate, and that ``predict_proba`` rows sum to 1
 
 This is the primary local acceptance check for this package: fitting and
 predicting against real data on your own machine, not just synthetic data in
-CI; see ``docs/usage-experiments-cli.md``. The loader is intentionally
+CI; see ``docs/experiments/index.md``. The loader is intentionally
 defensive: the real pkl stores feature matrices with ``dtype=object`` and a
 multi-key dict of sub-datasets.
 """

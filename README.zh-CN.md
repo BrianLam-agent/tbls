@@ -58,7 +58,7 @@ print(cross_val_score(model, X, y, cv=3))
 | [`docs/usage-tbls.md`](docs/usage-tbls.zh-CN.md) | `TBLS` 教程：参数、IFS/图正则化、增量层、可复现性、性能说明。 |
 | [`docs/usage-bls.md`](docs/usage-bls.zh-CN.md) | `BroadLearningSystem` 教程：参数、类别不平衡、Woodbury 增量增强。 |
 | [`docs/usage-cca-gfcca.md`](docs/usage-cca-gfcca.zh-CN.md) | `PairwiseKCCA`/`GraphFuzzyKCCA` 教程：双视图接口、多视图流水线、为何不支持 `Pipeline`。 |
-| [`docs/usage-experiments-cli.md`](docs/usage-experiments-cli.zh-CN.md) | 使用 `experiments/` 训练命令行与冒烟检查脚本运行真实数据集。 |
+| [`docs/experiments/index.md`](docs/experiments/index.md) | `experiments/` 流水线一站式文档：5 步快速上手 + 分篇 — 数据集、YAML 配置参考、每个 `model.name`、三个 CLI、网格搜索、产物文件、TBLS PR 悬崖说明。 |
 | [`docs/experimental-modules.md`](docs/experimental-modules.zh-CN.md) | `tbls.genoptim`/`tbls.ensemble` 中哪些可用、哪些不可用，以及原因。 |
 | [`docs/development.md`](docs/development.zh-CN.md) | 本地开发环境、约定、如何新增估计器、文档/翻译结构。 |
 | [`docs/release-process.md`](docs/release-process.zh-CN.md) | 语义化版本、变更日志生成、由标签触发的 CI/CD 发布流水线、PyPI 发布。 |

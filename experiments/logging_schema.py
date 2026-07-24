@@ -14,7 +14,7 @@ small). Raw per-fold predictions needed for ROC/PR/confusion-matrix plots are
 written to a side-file ``logs/{dataset}_{timestamp}_predictions.npz`` and
 referenced by ``predictions_file``; this side-file is produced for non-grid
 runs only (grid sweeps would explode its size) -- see
-``docs/usage-experiments-cli.md``.
+``docs/experiments/index.md``.
 """
 
 from __future__ import annotations

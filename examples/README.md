@@ -357,9 +357,10 @@ These examples do not repeat the documented API/CLI surface:
 - [`docs/usage-bls.md`](../docs/usage-bls.md) — `BroadLearningSystem` tutorial.
 - [`docs/usage-cca-gfcca.md`](../docs/usage-cca-gfcca.md) — `PairwiseKCCA` /
   `GraphFuzzyKCCA` two-view feature extractors.
-- [`docs/usage-experiments-cli.md`](../docs/usage-experiments-cli.md) — the
-  full training-CLI reference (every `--option`, the YAML config, the JSONL
-  event schema, the `.npz` predictions side-file, multi-view `--fusion`).
+- [`docs/experiments/index.md`](../docs/experiments/index.md) — the experiments
+  pipeline doc (one-stop: 5-step quick start + split per-topic pages —
+  datasets, YAML config reference, every `model.name`, the three CLIs, grid
+  search, output files, and the `TBLS` PR-cliff explainer).
 - [`docs/usage-multiview-fusion.md`](../docs/usage-multiview-fusion.md) —
   multi-view pkl data contract + CCA/GFCCA fusion-group config.
 

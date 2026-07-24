@@ -2,7 +2,7 @@ English | [简体中文](./development.zh-CN.md)
 
 # Development guide
 
-This is the "二次开发教程" — everything you need to set up a local
+Everything you need to set up a local
 development environment, run the checks CI runs, and extend the package
 correctly.
 

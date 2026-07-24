@@ -119,7 +119,7 @@ experiments/evaluate.py::TBLSEvaluator   (sklearn 指标：accuracy、F1、
 experiments/evaluate.py::TBLSResultSaver (写入 results_dir/.../*.xlsx)
 ```
 
-`experiments/train.py` 将其组织为由 YAML 配置（`experiments/configs/default.yaml`）驱动、支持 typer 命令行覆盖的 k 折交叉验证循环。参见 [`usage-experiments-cli.md`](./usage-experiments-cli.zh-CN.md) 获取完整 CLI/YAML/产物参考，参见 [`usage-figures-and-calibration.md`](./usage-figures-and-calibration.zh-CN.md) 了解为何 `TBLS` 出现颠倒的 PR 图（未标定 ridge 输出的 `0.5` 得分密庅）及未来标定工作如何解决。
+`experiments/train.py` 将其组织为由 YAML 配置（`experiments/configs/default.yaml`）驱动、支持 typer 命令行覆盖的 k 折交叉验证循现。参见 [`experiments/index.md`](./experiments/index.md) 获取完整流水线文档（一站式:5步快速上手 + 按主题分篇 — 数据集、YAML 参考、每个 `model.name`、三个 CLI、网格搜索、产物文件、TBLS PR 悬崖说明）。
 
 ## 8. 发布工程
 
@@ -129,7 +129,7 @@ experiments/evaluate.py::TBLSResultSaver (写入 results_dir/.../*.xlsx)
 
 - 初次接触本包？从根目录 [`README.md`](../README.zh-CN.md) 开始。
 - 想使用某个估计器？见 `usage-tbls.md`、`usage-bls.md`、`usage-cca-gfcca.md`。
-- 想用训练/可视化/对比命令行跑真实数据？见 `usage-experiments-cli.md`（完整 CLI + YAML + 产物参考）与 `usage-figures-and-calibration.md`（为何部分 `TBLS` PR 图看起来暴反）。
+- 想用训练/可视化/对比命令行跑真实数据？见 [`experiments/index.md`](./experiments/index.md)（5 步快速上手 + 按主题分篇 — 数据集、YAML 参考、模型、CLI、网格搜索、产物、TBLS PR 悬崖说明）。
 - 想贡献代码？见 [`development.md`](./development.zh-CN.md)。
 - 想了解 `genoptim`/`ensemble` 的局限？见 [`experimental-modules.md`](./experimental-modules.zh-CN.md)。
 - 想发布一个版本？见 [`release-process.md`](./release-process.zh-CN.md)。

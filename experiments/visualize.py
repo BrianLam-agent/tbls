@@ -12,7 +12,7 @@ structured log produced by :mod:`experiments.train` via
   ``y_true`` / ``y_score`` / ``y_pred`` arrays persisted to the
   ``logs/*_predictions.npz`` side-file (non-grid runs only; grid runs skip [src]
   these raw-array plots since the side-file is not produced for them -- see
-  ``docs/usage-experiments-cli.md``).
+  ``docs/experiments/index.md``).
 
 When multiple ``--dir`` paths are given, each run is tagged (by its YAML
 ``run_name`` if present in the ``run_started`` event, or by
