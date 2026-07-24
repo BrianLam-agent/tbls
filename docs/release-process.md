@@ -124,9 +124,9 @@ ordered so PyPI is the *last* externally-visible, hardest-to-undo step.
 
 ## Initial release
 
-The first release of this package is planned as `v0.1.0-alpha.1` (pre-release,
-signaling "just published, API may still shift before `v0.1.0`"). Subsequent
-`0.x` releases may still contain breaking changes between minor versions per
-SemVer's pre-1.0 convention; `tbls.genoptim`/`tbls.ensemble` remain
-experimental regardless of the core package's version (see
-[`experimental-modules.md`](./experimental-modules.md)).
+The first release of this package is `v0.1.0` (a pre-1.0 point release; the
+planned `v0.1.0-alpha.1` pre-release was skipped in favor of the point
+release). Subsequent `0.x` releases may still contain breaking changes between
+minor versions per SemVer's pre-1.0 convention; `tbls.genoptim`/
+`tbls.ensemble` remain experimental regardless of the core package's version
+(see [`experimental-modules.md`](./experimental-modules.md)).

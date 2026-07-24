@@ -8,7 +8,7 @@
 
 `tbls` 采用[语义化版本](https://semver.org/)，标签形如 `vMAJOR.MINOR.PATCH[-PRERELEASE]`，例如：
 
-- `v0.1.0-alpha.1`--1.0 之前，alpha 预发布（初始版本）。
+- `v0.1.0-alpha.1`——1.0 之前，alpha 预发布（最初的计划路线，已弃用，见下文）。
 - `v0.1.0`--1.0 之前的稳定点版本。
 - `v1.0.0`--首个稳定 API。
 
@@ -78,4 +78,4 @@ validate  ->  verify (= ci.yml)  ->  build  ->  changelog  ->  publish
 
 ## 初始版本
 
-本包首个版本计划为 `v0.1.0-alpha.1`（预发布，示意"刚发布，API 在 `v0.1.0` 前仍可能变动）。依据 SemVer 的 1.0 前约定，后续 `0.x` 版本在次版本间仍可能含破坏性变更；无论核心包版本如何，`tbls.genoptim`/`tbls.ensemble` 始终为实验性（见 [`experimental-modules.md`](./experimental-modules.zh-CN.md)）。
+本包首个版本为 `v0.1.0`（1.0 之前的点发布；原计划的 `v0.1.0-alpha.1` 预发布已改路为点发布）。依据 SemVer 的 1.0 前约定，后续 `0.x` 版本在次版本间仍可能含破坏性变更；无论核心包版本如何，`tbls.genoptim`/`tbls.ensemble` 始终为实验性（见 [`experimental-modules.md`](./experimental-modules.zh-CN.md)）。
