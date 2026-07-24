@@ -13,7 +13,7 @@
 dataset: biomedical_larger
 data_path: examples/datasets/
 
-run_name: lr_baseline   # human-chosen experiment name (run dir stem + figure label)
+run_name: Logistic Regression   # human-chosen experiment name (run dir stem + figure label)
 
 model:
   name: lr              # -> experiments.classifiers.create_classifier('lr')

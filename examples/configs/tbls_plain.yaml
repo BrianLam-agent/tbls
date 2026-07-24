@@ -22,7 +22,7 @@
 dataset: biomedical_larger
 data_path: examples/datasets/
 
-run_name: tbls_plain   # human-chosen experiment name (run dir stem + figure label)
+run_name: TBLS   # human-chosen experiment name (run dir stem + figure label)
 
 model:
   name: tbls

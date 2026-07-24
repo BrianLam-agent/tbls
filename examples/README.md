@@ -113,21 +113,36 @@ to every config in the batch. Each config gets its own run directory under
 ## Step 3 — visualize all runs on one set of figures
 
 After the five runs above, point `experiments/visualize.py` at the five run
-directories (their timestamp sub-directory, which contains the `logs/`):
+**directories by run_name** — you do **not** need to type or glob any
+timestamps. The CLI auto-picks the newest `YYYYMMDD_HHMMSS` subdirectory under
+each run-name for you:
 
 ```bash
 uv run --group experiments python experiments/visualize.py \
-    --dir examples/runs/tbls_plain/<timestamp> \
-    --dir examples/runs/tbls_ifs/<timestamp> \
-    --dir examples/runs/tbls_graph/<timestamp> \
-    --dir examples/runs/tbls_full/<timestamp> \
-    --dir examples/runs/lr_baseline/<timestamp> \
+    --dir "examples/runs/TBLS" \
+    --dir "examples/runs/TBLS IFS" \
+    --dir "examples/runs/TBLS Graph" \
+    --dir "examples/runs/TBLS Full" \
+    --dir "examples/runs/Logistic Regression" \
     --output-dir examples/plots --dpi 300
 ```
 
-Replace each `<timestamp>` with the actual `20260724_…` directory the runs
-created (or use a shell glob: `--dir examples/runs/tbls_full/2*`). Output in
-`examples/plots/`:
+(Strings with spaces get shell-quoted; the run names here are the YAML
+`run_name:` values, not the literal `tbls_plain` identifiers from the
+config-filename era — those were renamed in the configs you edited.)
+
+If you want to point at a **specific** run, give the full run-name/timestamp
+layer instead:
+
+```bash
+--dir "examples/runs/TBLS Full/20260724_084215"
+```
+
+Anything deeper (e.g. `…/<timestamp>/logs`), shallower (e.g. `examples/runs`),
+or non-timestamp errors out with a clear diagnostic — there is no shell
+`2*`-globbing needed, and the CLI refuses to silently guess.
+
+Output in `examples/plots/`:
 
 | File(s) | What you see |
 |---|---|
@@ -144,7 +159,37 @@ cohorts". Cranking them into one giant legend defeats the purpose.
 `--dpi 300` gives print-quality PNGs (the default; lower it with `--dpi 120`
 for quick previews).
 
----
+## Step 4 — cross-run comparison Excel
+
+For the paper-ready numbers table, run `experiments/compare.py`. It takes the
+same `--dir` arguments as visualize.py (run-name layer, auto-picks newest
+timestamp) and writes `comparison.xlsx` under `--output-dir`:
+
+```bash
+uv run --group experiments python experiments/compare.py \
+    --dir "examples/runs/TBLS" \
+    --dir "examples/runs/TBLS IFS" \
+    --dir "examples/runs/TBLS Graph" \
+    --dir "examples/runs/TBLS Full" \
+    --dir "examples/runs/Logistic Regression" \
+    --output-dir examples/comparison
+```
+
+This produces `examples/comparison/comparison.xlsx`, with one Excel sheet per
+cohort + a README sheet:
+
+- **rows** = runs (one per `--dir`),
+- **columns** = metrics (15 scalar metrics: `balanced_accuracy`, `accuracy`,
+  `f1_score`, `mcc`, `cohen_kappa`, `auroc`, `auprc`, `recall`,
+  `specificity`, `precision`, `negative_predictive_value`, `gmean`,
+  `hamming_loss`, `log_loss`, `brier_score`),
+- **each cell** = `mean (std)` across CV folds — the standard paper-table
+  presentation. Use `--no-std` to drop the ` (std)` term and write bare means.
+- **bold** = the best run for that metric on that cohort. Direction is metric-
+  aware: `auroc`/`balanced_accuracy`/`mcc`/… bold the **highest** mean;
+  `hamming_loss`/`log_loss`/`brier_score` bold the **lowest**.
+- A run that did not produce a cohort leaves that cell blank (not a 0, not a
+  NaN -- blank), so missing cohorts are visually obvious.
 
 ## The two Python-script examples (one-file reads)
 
@@ -233,6 +278,54 @@ output_dir: examples/runs           # run + cohort output goes under here
 `{model.name}_{dataset}/{timestamp}` and the figure label to that path's last
 component — that is the older behavior; setting `run_name` is recommended for
 any comparison you want to label cleanly.
+
+### Sweeping a grid (`--grid` + optional YAML `grid:`)
+
+`--grid` sweeps a hyperparameter grid and writes a ranked `GridSummary` sheet
+(best config row 1, marked `is_winner=True`), a flat `GridSearchLog` sheet
+(one row per swept point — the same data as the `grid_point_completed` JSONL
+events), and a per-point `Grid_{i:03d}` sheet per fold. The grid is resolved
+in two tiers:
+
+1. **Default** = the in-package `TBLS_GRID` (`n_map_trees`/`n_enhance_trees`/
+   `reg_param`) when `model.name: tbls`, or `BLS_GRID` when `model.name: bls`.
+2. **Optional override/extension** via a top-level YAML `grid:` section — a
+   mapping of axis-name → list-of-values. Axes named in YAML **replace** the
+   default value for that axis; default axes **not** named in the YAML are
+   **kept**. So YAML `grid:` can shrink the default, swap one axis, or add a
+   brand-new axis (e.g. `use_if_weights: [false, true]`).
+
+Example — sweep only `use_if_weights × graph_gamma`, leaving the rest of the
+model defaults fixed (i.e. two axes, 2×3=6 points):
+
+```yaml
+model:
+  name: tbls
+  use_if_weights: false   # default value (overridden per grid point)
+  graph_gamma: 0.0         # default value (overridden per grid point)
+
+grid:
+  use_if_weights: [false, true]
+  graph_gamma: [0.0, 0.05, 0.1]
+```
+
+`--grid` is only valid for `tbls`/`bls`. For any baseline (`lr`/`rf`/`svm`/…),
+passing `--grid` falls back to a single k-fold run and warns — to sweep a
+baseline you must set a YAML `grid:` section explicitly (there is no default
+grid for baselines), e.g.:
+
+```yaml
+model:
+  name: lr
+grid:
+  C: [0.01, 0.1, 1.0, 10.0]
+```
+
+After a grid run, the `grid_summary` and every `grid_point_completed` event
+are persisted to the JSONL log, so the full search trajectory is
+structured-readable; `experiments/visualize.py` reads `grid_point_completed`
+events back and produces a `grid_search_summary.png` (metric vs. each swept
+axis, one subplot per axis).
 
 ---
 
