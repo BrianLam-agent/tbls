@@ -1,3 +1,5 @@
+English | [简体中文](./cli-visualize.zh-CN.md)
+
 # `experiments/visualize.py` — figure CLI
 
 `visualize.py` reads one or more run directories and writes PNG figures. Run

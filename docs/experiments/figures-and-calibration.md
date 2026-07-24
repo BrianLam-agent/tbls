@@ -1,3 +1,5 @@
+English | [简体中文](./figures-and-calibration.zh-CN.md)
+
 # Figures, calibration, and the TBLS score-density plateau
 
 This page explains the math behind one recurring "looks weird" figure on the

@@ -1,3 +1,5 @@
+English | [简体中文](./outputs.zh-CN.md)
+
 # What lands on disk after a run
 
 This is the reference for every file written by `train.py`, the Excel sheet

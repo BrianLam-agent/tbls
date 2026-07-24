@@ -1,3 +1,5 @@
+English | [简体中文](./config-reference.zh-CN.md)
+
 # YAML config reference
 
 A YAML config drives one run of `experiments/train.py`. This page lists every

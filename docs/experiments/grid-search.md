@@ -1,3 +1,5 @@
+English | [简体中文](./grid-search.zh-CN.md)
+
 # Hyperparameter grid search
 
 `--grid` switches `train.py` from a single k-fold CV to a hyperparameter

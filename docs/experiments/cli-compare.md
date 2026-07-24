@@ -1,3 +1,5 @@
+English | [简体中文](./cli-compare.zh-CN.md)
+
 # `experiments/compare.py` — cross-run comparison Excel
 
 `compare.py` reads one or more run directories (the same `--dir` rule as

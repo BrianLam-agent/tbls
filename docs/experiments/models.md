@@ -1,3 +1,5 @@
+English | [简体中文](./models.zh-CN.md)
+
 # `model.name` — what to put in a YAML config
 
 The YAML `model.name` field selects what gets fit. There are two tiers:

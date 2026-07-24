@@ -1,3 +1,5 @@
+English | [简体中文](./internals.zh-CN.md)
+
 # Pipeline internals (for maintainers)
 
 This page is for someone who wants to **change or extend the pipeline itself**,

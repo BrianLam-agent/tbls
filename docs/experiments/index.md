@@ -1,3 +1,5 @@
+English | [简体中文](./index.zh-CN.md)
+
 # The experiments pipeline — overview
 
 `experiments/` is the project's training, evaluation, and comparison pipeline.

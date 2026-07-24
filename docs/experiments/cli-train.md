@@ -1,3 +1,5 @@
+English | [简体中文](./cli-train.zh-CN.md)
+
 # `experiments/train.py` — CLI reference
 
 `train.py` is the main training CLI. Run it with `uv run --group experiments`.
