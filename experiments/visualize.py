@@ -68,6 +68,8 @@ for _p in (_REPO_ROOT, _REPO_ROOT / "experiments"):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
+from run_resolution import resolve_run_dir  # noqa: E402  (after sys.path setup)
+
 
 def _run_label(run_started: dict[str, Any] | None, run_dir: Path) -> str:
     """Build a short, stable run label from the ``run_started`` event.
@@ -545,10 +547,12 @@ def visualize(
     all_fold_rows: list[dict[str, Any]] = []
     all_grid_rows: list[dict[str, Any]] = []
     all_runs: dict[str, Path] = {}
-    for run_dir in run_dirs:
-        if not run_dir.exists():
-            typer.echo(f"Run dir not found: {run_dir}", err=True)
-            continue
+    for run_arg in run_dirs:
+        try:
+            run_dir = resolve_run_dir(run_arg)
+        except (NotADirectoryError, FileNotFoundError, ValueError) as exc:
+            typer.echo(f"--dir {run_arg}: {exc}", err=True)
+            raise typer.Exit(1) from exc
         fold_rows, grid_rows, _run_started, label = collect_events(run_dir)
         for r in fold_rows:
             r["run"] = label
@@ -558,8 +562,8 @@ def visualize(
         all_grid_rows.extend(grid_rows)
         all_runs[label] = run_dir
         typer.echo(
-            f"loaded {run_dir}: {len(fold_rows)} fold events, {len(grid_rows)} grid summaries "
-            f"(label={label})"
+            f"loaded {run_dir.parent.name}/{run_dir.name}: {len(fold_rows)} fold events, "
+            f"{len(grid_rows)} grid summaries (label={label})"
         )
 
     if not all_fold_rows:
