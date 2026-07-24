@@ -18,8 +18,8 @@ from sklearn.svm import SVC
 pytest.importorskip("imblearn")  # experiments-only dep; skip otherwise
 
 from experiments.evaluate import TBLSResultSaver
-from experiments.hyperparams import BLS_DEFAULTS, TBLS_DEFAULTS
-from experiments.train import _build_model, _run_grid
+from experiments.hyperparams import BLS_DEFAULTS, TBLS_DEFAULTS, TBLS_GRID
+from experiments.train import _build_model, _resolve_grid, _run_grid
 
 from tbls import TBLS, BroadLearningSystem
 
@@ -82,17 +82,64 @@ def test_build_model_invalid_name_raises() -> None:
         _build_model({"name": "bogus"})
 
 
-def test_grid_smoke_ranks_and_one_row_per_point(tmp_path, monkeypatch) -> None:
-    """--grid path: a tiny 2x2 grid on synthetic data yields ranked rows."""
-    monkeypatch.setattr(
-        "experiments.train.TBLS_GRID", {"n_map_trees": [3, 5], "reg_param": [1e-8, 1e-4]}
-    )
+def test_resolve_grid_default_tbls() -> None:
+    """_resolve_grid returns TBLS_GRID for a tbls config without YAML grid."""
+    assert _resolve_grid({"model": {"name": "tbls"}}) == TBLS_GRID
+
+
+def test_resolve_grid_yaml_override_replaces_axes() -> None:
+    """A YAML ``grid:`` section overrides/extends the default grid axes."""
+    custom = {"n_map_trees": [3, 7], "use_if_weights": [False, True]}
+    out = _resolve_grid({"model": {"name": "tbls"}, "grid": custom})
+    assert out["n_map_trees"] == [3, 7]  # overrides the default
+    assert "use_if_weights" in out and out["use_if_weights"] == [False, True]
+    # other default axes still present (merged, not fully replaced)
+    assert "n_enhance_trees" in out and out["n_enhance_trees"] == TBLS_GRID["n_enhance_trees"]
+
+
+def test_resolve_grid_yaml_full_override_drops_defaults() -> None:
+    """A YAML grid naming every default axis replaces them all."""
+    custom = {"n_map_trees": [3, 7], "n_enhance_trees": [5, 9], "reg_param": [1e-8, 1e-4]}
+    out = _resolve_grid({"model": {"name": "tbls"}, "grid": custom})
+    assert out == custom
+
+
+def test_resolve_grid_baseline_requires_yaml() -> None:
+    """Baseline model.name has no default grid; YAML grid is required."""
+    with pytest.raises(ValueError, match=r"No default grid"):
+        _resolve_grid({"model": {"name": "lr"}})
+    out = _resolve_grid({"model": {"name": "lr"}, "grid": {"C": [0.1, 1.0]}})
+    assert out == {"C": [0.1, 1.0]}
+
+
+@pytest.fixture
+def _grid_smoke_cfg() -> dict:
+    """Tiny 2x2 tbls grid cfg for the grid smoke test.
+
+    Names every default TBLS_GRID axis explicitly so the YAML override fully
+    replaces the defaults (otherwise ``_resolve_grid`` keeps the not-named
+    default axes, expanding the swept grid here to 12).
+    """
+    return {
+        "model": {"name": "tbls"},
+        "grid": {
+            "n_map_trees": [3, 5],
+            "n_enhance_trees": [10],  # pin to a single value -> drop this axis
+            "reg_param": [1e-8, 1e-4],
+        },
+        "cv": {"n_splits": 2, "random_state": 0},
+        "preprocess": {},
+    }
+
+
+def test_grid_smoke_ranks_and_one_row_per_point(tmp_path, _grid_smoke_cfg) -> None:
+    """--grid path: a tiny 2x2 grid on synthetic data yields ranked rows with winner."""
+    # `grid:` in cfg drives the sweep; no monkeypatch of the module constant needed.
     x, y = make_classification(n_samples=60, n_features=8, random_state=0)
     y = y.astype(np.int64)
-    cfg = {"model": {"name": "tbls"}, "cv": {"n_splits": 2, "random_state": 0}, "preprocess": {}}
     saver = TBLSResultSaver(dataset_name="synth", timestamp="t", key="k", output_dir=str(tmp_path))
 
-    rows = _run_grid(cfg, (x, y), "synth", "k", "tbls", saver)
+    rows = _run_grid(_grid_smoke_cfg, (x, y), "synth", "k", "tbls", saver)
 
     assert len(rows) == 4  # 2x2 grid
     assert {r["grid_idx"] for r in rows} == {1, 2, 3, 4}
@@ -100,3 +147,6 @@ def test_grid_smoke_ranks_and_one_row_per_point(tmp_path, monkeypatch) -> None:
     assert accs == sorted(accs, reverse=True)  # ranked descending
     for row in rows:
         assert "n_map_trees" in row and "reg_param" in row  # config carried
+    # winner marks present
+    assert rows[0]["is_winner"] is True and rows[0]["rank"] == 1
+    assert rows[1]["is_winner"] is False and rows[1]["rank"] == 2

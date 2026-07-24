@@ -78,6 +78,34 @@ class FoldCompletedEvent(TypedDict):
     predictions_file: str | None
 
 
+class GridPointCompletedEvent(TypedDict):
+    """Emitted per swept grid point (per cohort) inside ``_run_grid``.
+
+    A structured, JSONL-persisted record of each grid point's searched
+    hyperparameters and averaged fold metrics, so downstream consumers
+    (compare.py, visualize.py, or an external analysis script) can read the
+    full search trajectory back without scraping stdout or reopening every
+    ``Grid_{i:03d}`` Excel sheet.
+
+    Attributes:
+        event: Literal event discriminator (``"grid_point_completed"``).
+        dataset: Dataset stem.
+        cohort_key: Sub-dataset key.
+        grid_idx: 1-indexed grid-point index over the swept grid.
+        n_grid_points: Total number of swept grid points.
+        grid_params: The grid point's hyperparameters (native Python values).
+        metrics: Average metrics across folds (``avg_``-prefixed).
+    """
+
+    event: Literal["grid_point_completed"]
+    dataset: str
+    cohort_key: str
+    grid_idx: int
+    n_grid_points: int
+    grid_params: dict[str, object]
+    metrics: dict[str, object]
+
+
 class GridSummaryEvent(TypedDict):
     """Emitted once per cohort after ``_run_grid`` ranks its grid points.
 

@@ -43,6 +43,7 @@ from hyperparams import (
 )
 from logging_schema import (
     FoldCompletedEvent,
+    GridPointCompletedEvent,
     GridSummaryEvent,
     RunFinishedEvent,
     RunStartedEvent,
@@ -366,6 +367,49 @@ def _rank_key(row: dict[str, Any]) -> float:
     return float(value) if isinstance(value, (int, float)) else float("-inf")
 
 
+def _resolve_grid(cfg: dict[str, Any]) -> dict[str, Any]:
+    """Resolve the swept hyperparameter grid for a ``--grid`` run.
+
+    Two-tier resolution (Plan-requested "B" option):
+
+    1. Default grid is the in-package ``TBLS_GRID``/``BLS_GRID`` from
+       :mod:`experiments.hyperparams`, selected by ``cfg["model"]["name"]``;
+    2. If the YAML config has a top-level ``grid:`` section (a mapping of axis
+       name -> list-of-values), it **overrides** the default grid entirely --
+       axes named in the YAML replace the defaults, and axes not in the YAML
+       but not in the defaults are added. Set ``grid: {}`` to sweep the
+       default only of the explicitly-empty grid (still falls back to the
+       in-package default above), and unset ``grid:`` to use the default.
+
+    Args:
+        cfg: The full parsed YAML config dict.
+
+    Returns:
+        A ``{axis_name: list_of_values}`` dict for :class:`ParameterGrid`.
+
+    Raises:
+        ValueError: ``model.name`` is neither ``"tbls"`` nor ``"bls"`` and no
+            YAML ``grid:`` override was provided (i.e. there is no default to
+            fall back to for a baseline classifier).
+    """
+    name = cfg.get("model", {}).get("name", "tbls")
+    default = TBLS_GRID if name == "tbls" else BLS_GRID if name == "bls" else None
+    grid_override = cfg.get("grid")
+    if grid_override is not None:
+        # YAML grid: overrides (replace) the default grid axes named there.
+        if default is None:
+            return dict(grid_override)
+        merged = dict(default)
+        merged.update(grid_override)
+        return merged
+    if default is None:
+        raise ValueError(
+            f"No default grid for model.name={name!r}. Set YAML `grid:` to "
+            "specify the axes to sweep."
+        )
+    return dict(default)
+
+
 def _run_grid(
     cfg: dict[str, Any],
     cohort: CohortData,
@@ -374,14 +418,21 @@ def _run_grid(
     model_name: str,
     saver: TBLSResultSaver,
 ) -> list[dict[str, Any]]:
-    """Sweep the model hyperparameter grid for one cohort; write a ranked summary.
+    """Sweep the hyperparameter grid for one cohort; write a ranked summary.
 
-    Scope note: sweeps only the model grid (``TBLS_GRID``/``BLS_GRID``) at a
-    fixed fusion default for multi-view cohorts; fusion hyperparameters are not
-    swept in this pass.
+    The grid is resolved by :func:`_resolve_grid`: the in-package ``TBLS_GRID``/
+    ``BLS_GRID`` default, optionally overridden/extended by a YAML ``grid:``
+    section (mapping of axis name -> list of values). ``--grid`` is only valid
+    for ``tbls``/``bls``; for any baseline ``model.name`` the caller drops to a
+    single k-fold run with a warning instead.
+
+    Each swept grid point's averaged fold metrics are emitted as a
+    ``GridPointCompletedEvent`` in the JSONL log (so downstream consumers can
+    read the full search trajectory). A ``GridSearchLog`` Excel sheet carries
+    the same per-point rows; the ``GridSummary`` sheet marks the winner with
+    ``is_winner=True`` on row 1.
     """
-    name = cfg.get("model", {}).get("name", "tbls")
-    grid_axes = TBLS_GRID if name == "tbls" else BLS_GRID
+    grid_axes = _resolve_grid(cfg)
 
     rows: list[dict[str, Any]] = []
     n_points = len(ParameterGrid(grid_axes))
@@ -391,14 +442,34 @@ def _run_grid(
         )
         saver.save_fold_results(fold_results, sheet_name=f"Grid_{i:03d}")
         avg = TBLSEvaluator.calculate_average_metrics(fold_results)
-        rows.append({"grid_idx": i, "model": model_name, **point, **avg})
+        row = {"grid_idx": i, "model": model_name, **point, **avg}
+        rows.append(row)
+        # Emit a structured GridPointCompletedEvent (JSONL) for this point.
+        point_event: GridPointCompletedEvent = {
+            "event": "grid_point_completed",
+            "dataset": dataset_name,
+            "cohort_key": key,
+            "grid_idx": i,
+            "n_grid_points": n_points,
+            "grid_params": _native_params(point),
+            "metrics": _native_metrics(avg),
+        }
+        logger.bind(**point_event).info("grid_point_completed")
         logger.info(
             f"dataset={dataset_name} key={key} grid {i}/{n_points} {point} "
             f"acc={avg.get('avg_accuracy', float('nan')):.4f}"
         )
 
     rows.sort(key=_rank_key, reverse=True)
+    # Mark the winner (rank 1, is_winner=True) for the GridSummary sheet so a
+    # reader can find the best config without re-deriving the sort.
+    for rank, row in enumerate(rows, start=1):
+        row["rank"] = rank
+        row["is_winner"] = rank == 1
     saver.save_summary(rows, sheet_name="GridSummary")
+    # A flat per-grid-point search log (one row per swept point, same data as
+    # the JSONL ``grid_point_completed`` events) for readers who prefer Excel.
+    saver.save_summary(rows, sheet_name="GridSearchLog")
     winner = rows[0]
     winner_params = {k: winner[k] for k in winner if k in grid_axes}
     _winner_metric = _native(winner.get("avg_balanced_accuracy"))
