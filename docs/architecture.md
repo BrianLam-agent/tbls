@@ -186,7 +186,7 @@ experiments/evaluate.py::TBLSResultSaver (writes results_dir/.../*.xlsx)
 
 `experiments/train.py` wires this into a k-fold cross-validation loop driven
 by a YAML config (`experiments/configs/default.yaml`) with typer CLI
-overrides. See [`usage-experiments-cli.md`](./usage-experiments-cli.md).
+overrides. See [`usage-experiments-cli.md`](./usage-experiments-cli.md) for the full CLI/YAML/output reference, and [`usage-figures-and-calibration.md`](./usage-figures-and-calibration.md) for why `TBLS` produces a sharp PR-curve "cliff" (the uncalibrated ridge output's `0.5` score-density plateau) and what future calibration work would resolve it.
 
 ## 8. Release engineering
 
@@ -202,8 +202,9 @@ to PyPI via Trusted Publishing (OIDC, no stored API token).
 - New to the package? Start with the root [`README.md`](../README.md).
 - Want to use an estimator? See `usage-tbls.md`, `usage-bls.md`,
   `usage-cca-gfcca.md`.
-- Want to run the training CLI against real data? See
-  `usage-experiments-cli.md`.
+- Want to run the training/visualization/comparison CLI against real data? See
+  `usage-experiments-cli.md` (full CLI + YAML + output reference) and
+  `usage-figures-and-calibration.md` (why some `TBLS` PR plots look pathological).
 - Want to contribute code? See [`development.md`](./development.md).
 - Want to understand `genoptim`/`ensemble`'s limitations? See
   [`experimental-modules.md`](./experimental-modules.md).
